@@ -1,10 +1,9 @@
-import polars as pl
+import pandas as pd
 from pathlib import Path
-
+from decimal import Decimal
 from typing import TYPE_CHECKING, List, Dict
 
 from .lector_archivos import LectorArchivos
-
 
 if TYPE_CHECKING:
     from lectores.modelos import ConfiguracionLector
@@ -12,7 +11,7 @@ if TYPE_CHECKING:
 
 class LectorOMS(LectorArchivos):
     """
-        Clase para la lectura de archivos Excel específicos con nombre OMS usando Polars.
+    Clase para la lectura de archivos Excel específicos con nombre OMS usando Pandas.
     """
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
@@ -39,31 +38,39 @@ class LectorOMS(LectorArchivos):
 
         self.leer_archivo()
 
-
-
-    def leer_archivo(self) -> pl.DataFrame:
+    def leer_archivo(self) -> pd.DataFrame:
         """
-            Lee un archivo Excel y devuelve un DataFrame de Polars.
+        Lee un archivo Excel y devuelve un DataFrame de Pandas.
         """
-        self._dataframe = pl.DataFrame()  # Iniciar un DataFrame vacío
+        from main import exportar_resultados_excel
+
+        self._dataframe = pd.DataFrame()  # Iniciar un DataFrame vacío
 
         for archivo in self.archivos:
-
             if not (archivo.endswith('.xlsx') or archivo.endswith('.xls')):
                 raise ValueError("Formato no soportado. Solo .xlsx y .xls")
 
-            df = pl.read_excel(
+            engine = 'openpyxl' if archivo.endswith('.xlsx') else 'xlrd'
+            df = pd.read_excel(
                 archivo,
-                infer_schema_length=False
+                engine=engine
             )
 
-            self._dataframe = self._dataframe.vstack(df)
+            # Asegurar que 'orden externa' sea string
+            df['orden externa'] = df['orden externa'].astype(str)
+
+            self._dataframe = pd.concat([self._dataframe, df], ignore_index=True)
+
+        exportar_resultados_excel(self._dataframe, "df_oms")
+        raise Exception("Fin de la prueba")
 
         self._cambiar_nombres_columnas()
         self._limpieza_datos()
 
-
     def _limpieza_datos(self) -> None:
+        """
+        Realiza la limpieza de datos en el DataFrame.
+        """
         columnas_decimales = [
             'costo excl imp',
             'precio vta excl imp',
@@ -81,44 +88,35 @@ class LectorOMS(LectorArchivos):
             'cantidad'
         ]
 
-        self._dataframe = self._dataframe.with_columns(
-            [
-                (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
-                .cast(pl.Decimal(20, 2))  # Convertir a Decimal(10, 2)
-                for col in columnas_decimales
-            ]+ [
-                # Conversión a int (solo si es necesario) en otras columnas
-                (pl.col(col).cast(pl.Int64))  # Convertir a Int64
-                for col in columnas_int  # Otras columnas que deseas convertir a int
-            ]
+        # Convertir columnas decimales
+        for col in columnas_decimales:
+            if col in self._dataframe.columns:
+                self._dataframe[col] = (
+                    self._dataframe[col]
+                    .round(2)
+                    .apply(Decimal)
+                )
+
+        # Convertir columnas enteras
+        for col in columnas_int:
+            if col in self._dataframe.columns:
+                self._dataframe[col] = self._dataframe[col].astype('Int64')
+
+        # Limpiar orden_externa
+        self._dataframe['orden_externa'] = self._dataframe['orden_externa'].str.strip()
+
+        # Crear orden_externa_duplicada
+        patron = r'^\d+\s\d+$'
+        self._dataframe['orden_externa_duplicada'] = self._dataframe['orden_externa'].apply(
+            lambda x: x.replace(x.split()[-1], '').strip() if pd.notna(x) and bool(re.match(patron, str(x))) else None
         )
 
-        self._dataframe = self._dataframe.with_columns([
-            pl.col("orden_externa")
-            .str.strip_chars()
-            .alias("orden_externa")
-        ])
-
-        # Crear una nueva columna que contenga el valor de la columna original solo si coincide con el patrón
-        self._dataframe = self._dataframe.with_columns(
-            pl.when(pl.col("orden_externa").str.contains(r"^\d+\s\d+$"))  # Verifica si la cadena coincide con el patrón
-            .then(pl.col("orden_externa").str.replace(r"\s\d+$", ""))  # Elimina el número final y el espacio
-            .otherwise(pl.lit(None))  # Si no coincide, el valor será None
-            .alias("orden_externa_duplicada")
-        )
-
+        # Limpiar prefijo '20000'
         columnas_a_limpiar = ["orden_externa", "orden_externa_duplicada"]
-
         for columna in columnas_a_limpiar:
-            self._dataframe = self._dataframe.with_columns([
-                pl.when(pl.col(columna) == "20000")
-                .then(pl.col(columna))
-                .otherwise(pl.col(columna).str.replace_all("^20000", ""))
-                .alias(f"{columna}_limpio")
-            ])
-
-
-
+            self._dataframe[f'{columna}_limpio'] = self._dataframe[columna].apply(
+                lambda x: x if x == "20000" else str(x).replace("20000", "", 1) if pd.notna(x) else None
+            )
 
     def __obtener_archivos_oms(self) -> List[str]:
         """
@@ -127,7 +125,6 @@ class LectorOMS(LectorArchivos):
         Returns:
             List[str]: Listas de rutas de archivos por tipo
         """
-
         for archivo in Path(self.configuracion.ruta_carpeta).glob('*'):
             if archivo.suffix.lower() in ['.xlsx', '.xls']:
                 self.archivos.append(str(archivo))

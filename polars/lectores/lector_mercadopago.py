@@ -1,6 +1,6 @@
-import polars as pl
+import pandas as pd
 from pathlib import Path
-
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from .lector_archivos import LectorArchivos
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 class LectorMercadoPago(LectorArchivos):
     """
-    Clase para la lectura de archivos Excel específicos con nombre OMS usando Polars.
+    Clase para la lectura de archivos Excel específicos con nombre OMS usando Pandas.
     """
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
@@ -28,20 +28,27 @@ class LectorMercadoPago(LectorArchivos):
 
         self.leer_archivo()
 
-
-    def leer_archivo(self) -> pl.DataFrame:
+    def leer_archivo(self) -> pd.DataFrame:
         """
-        Lee un archivo Excel y devuelve un DataFrame de Polars.
+        Lee un archivo Excel y devuelve un DataFrame de Pandas.
         """
+        ruta_archivo = Path(self.configuracion.ruta_archivo)
+        extension = ruta_archivo.suffix.lower()
 
-        self._dataframe = pl.read_excel(
-            self.configuracion.ruta_archivo,
-            infer_schema_length=False
-        )
+        if extension not in ['.xlsx', '.xls']:
+            raise ValueError(f"Formato de archivo no soportado: {extension}. Use .xlsx o .xls")
+
+        try:
+            engine = 'openpyxl' if extension == '.xlsx' else 'xlrd'
+            self._dataframe = pd.read_excel(
+                self.configuracion.ruta_archivo,
+                engine=engine
+            )
+        except Exception as e:
+            raise ValueError(f"Error al leer el archivo Excel: {str(e)}")
 
         self._cambiar_nombres_columnas()
         self._limpieza_datos()
-
 
     def _limpieza_datos(self) -> None:
         """
@@ -55,34 +62,24 @@ class LectorMercadoPago(LectorArchivos):
         Returns:
             None: Modifica el DataFrame internamente
         """
+        # Limpiar espacios en numero_identificacion
+        self._dataframe['numero_identificacion'] = self._dataframe['numero_identificacion'].str.strip()
 
-
-        self._dataframe = self._dataframe.with_columns([
-            pl.col("numero_identificacion")
-            .str.strip_chars()
-            .alias("numero_identificacion")
-        ])
-
-        self._dataframe = self._dataframe.with_columns([
-            # Crear nueva columna con la limpieza del prefijo '20000'
-            pl.when(pl.col('numero_identificacion') == "20000")
-            .then(pl.col('numero_identificacion'))
-            .otherwise(pl.col('numero_identificacion').str.replace_all("^20000", ""))
-            .alias("numero_identificacion_limpio")
-        ])
-
-        self._dataframe = self._dataframe.filter(
-            ~pl.col("numero_identificacion").str.contains(r"(?i)total")
+        # Crear nueva columna con la limpieza del prefijo '20000'
+        self._dataframe['numero_identificacion_limpio'] = (
+            self._dataframe['numero_identificacion'].apply(
+                lambda x: x if x == "20000" else str(x).replace("^20000", "", regex=True)
+            )
         )
 
+        # Convertir columnas decimales
         columnas_decimales = [
             'monto_bruto_operacion'
         ]
 
-        self._dataframe = self._dataframe.with_columns(
-            [
-                (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
-                .cast(pl.Decimal(20, 2))  # Convertir a Decimal(10, 2)
-                for col in columnas_decimales
-            ]
-        )
+        for col in columnas_decimales:
+            self._dataframe[col] = (
+                self._dataframe[col]
+                .round(2)
+                .apply(Decimal)
+            )

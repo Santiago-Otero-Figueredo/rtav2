@@ -1,11 +1,11 @@
 from typing import List, Dict, Any, Tuple
-import polars as pl
+import pandas as pd
 from .modelos import ConfiguracionLector
 
 
 class LectorArchivos:
     """
-    Clase padre para la lectura de archivos usando Polars.
+    Clase padre para la lectura de archivos usando Pandas.
     """
     def __init__(self, configuracion: ConfiguracionLector, mapeo_indices_nombres_columnas: dict={}):
         self.configuracion = configuracion
@@ -27,18 +27,18 @@ class LectorArchivos:
         """
         raise NotImplementedError("Este método debe ser implementado por las clases hijas.")
 
-    def dataframe(self) -> pl.DataFrame:
+    def dataframe(self) -> pd.DataFrame:
         """
         Obtiene el DataFrame cargado
         """
         return self._dataframe
 
-    def _cambiar_nombres_columnas(self) -> pl.DataFrame:
+    def _cambiar_nombres_columnas(self) -> pd.DataFrame:
         """
         Cambia los nombres de las columnas según su índice.
 
         Returns:
-            pl.DataFrame: DataFrame con los nombres de columnas actualizados
+            pd.DataFrame: DataFrame con los nombres de columnas actualizados
         """
         if self._dataframe is None:
             raise ValueError("No se ha cargado el DataFrame")
@@ -48,9 +48,10 @@ class LectorArchivos:
             if 0 <= indice < len(nombres_columnas):
                 nombres_columnas[indice] = nuevo_nombre
 
-        self._dataframe = self._dataframe.select(pl.col("*")).rename(dict(zip(self._dataframe.columns, nombres_columnas)))
+        self._dataframe.columns = nombres_columnas
+        return self._dataframe
 
-    def procesar_datos_en_chunks(self, tamano_chunk: int = 10000) -> pl.DataFrame:
+    def procesar_datos_en_chunks(self, tamano_chunk: int = 10000) -> pd.DataFrame:
         """
         Procesa el archivo en chunks para manejar grandes volúmenes de datos.
 
@@ -58,7 +59,11 @@ class LectorArchivos:
             tamano_chunk (int): Tamaño de cada chunk a procesar
 
         Returns:
-            pl.DataFrame: DataFrame procesado
+            pd.DataFrame: DataFrame procesado
         """
-        return pl.scan_csv(self.configuracion.ruta_archivo).collect()
+        chunks = []
+        # Utilizamos el método read_csv con chunks de pandas
+        for chunk in pd.read_csv(self.configuracion.ruta_archivo, chunksize=tamano_chunk):
+            chunks.append(chunk)
+        return pd.concat(chunks, ignore_index=True)
 

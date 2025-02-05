@@ -1,10 +1,9 @@
-import polars as pl
+import pandas as pd
 from pathlib import Path
-
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from .lector_archivos import LectorArchivos
-
 
 if TYPE_CHECKING:
     from lectores.modelos import ConfiguracionLector
@@ -12,10 +11,9 @@ if TYPE_CHECKING:
 
 class LectorERP(LectorArchivos):
     """
-    Clase para la lectura de archivos Excel específicos con nombre OMS usando Polars.
+    Clase para la lectura de archivos Excel específicos con nombre OMS usando Pandas.
     """
     def __init__(self, configuracion: 'ConfiguracionLector'):
-
         mapeo_indices_nombres_columnas = {
             3:'cedula_cliente', # Cliente
             5:'auxiliar', # Auxiliar
@@ -27,50 +25,55 @@ class LectorERP(LectorArchivos):
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
         self.configuracion = configuracion
-
         self.leer_archivo()
 
-
-
-    def leer_archivo(self) -> pl.DataFrame:
+    def leer_archivo(self) -> pd.DataFrame:
         """
-        Lee un archivo Excel y devuelve un DataFrame de Polars.
-        """
+        Lee un archivo Excel y devuelve un DataFrame de Pandas.
 
-        self._dataframe = pl.read_excel(
-            self.configuracion.ruta_archivo,
-            infer_schema_length=False
-        )
+        El método detecta automáticamente si el archivo es .xlsx o .xls y usa
+        el engine apropiado para cada formato:
+        - .xlsx: usa 'openpyxl'
+        - .xls: usa 'xlrd'
+
+        Raises:
+            ValueError: Si el archivo no es un formato Excel válido
+        """
+        ruta_archivo = Path(self.configuracion.ruta_archivo)
+        extension = ruta_archivo.suffix.lower()
+
+        if extension not in ['.xlsx', '.xls']:
+            raise ValueError(f"Formato de archivo no soportado: {extension}. Use .xlsx o .xls")
+
+        try:
+            engine = 'openpyxl' if extension == '.xlsx' else 'xlrd'
+            self._dataframe = pd.read_excel(
+                self.configuracion.ruta_archivo,
+                engine=engine
+            )
+        except Exception as e:
+            raise ValueError(f"Error al leer el archivo Excel: {str(e)}")
 
         self._cambiar_nombres_columnas()
         self._limpieza_datos()
 
     def _limpieza_datos(self) -> None:
-
         """
         Realiza la limpieza de datos en el DataFrame.
 
         Pasos:
         1. Quita los puntos al final del texto en la columna numero_oc_comercial
         2. Elimina espacios en blanco después de quitar los puntos
+        3. Convierte las columnas numéricas a decimal
         """
+        # Convertir columnas decimales
+        columnas_decimales = ['total_cop']
+        for col in columnas_decimales:
+            self._dataframe[col] = self._dataframe[col].round(2).apply(Decimal)
 
-        columnas_decimales = [
-            'total_cop'
-        ]
-
-        self._dataframe = self._dataframe.with_columns(
-            [
-                (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
-                .cast(pl.Decimal(20, 2))  # Convertir a Decimal(10, 2)
-                for col in columnas_decimales
-            ]
+        # Limpiar numero_oc_comercial
+        self._dataframe['numero_oc_comercial'] = (
+            self._dataframe['numero_oc_comercial']
+            .str.replace(r'\.+$', '', regex=True)  # Quita uno o más puntos al final
+            .str.strip()  # Elimina espacios en blanco
         )
-
-
-        self._dataframe = self._dataframe.with_columns([
-            pl.col("numero_oc_comercial")
-            .str.replace_all(r"\.+$", "")  # Quita uno o más puntos al final
-            .str.strip_chars()  # Elimina espacios en blanco
-            .alias("numero_oc_comercial")
-        ])
