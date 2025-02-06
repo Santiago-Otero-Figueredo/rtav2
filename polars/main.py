@@ -12,7 +12,7 @@ import polars as pl
 import time
 import psutil
 import os
-
+import pandas as pd
 
 
 
@@ -75,128 +75,31 @@ def main():
     """
     Función principal que lee todos los archivos de la carpeta OMS y los une en un solo DataFrame.
     """
+    #prueba_lectura_directa()
     prueba_cruce_oms_mercado_pago()
     #prueba_oms()
     #prueba_mercadopago()
     #prueba_erp()
 
 
-def prueba_oms():
-    ruta_carpeta_oms = 'insumos/oms'  # Ajusta esta ruta según tu estructura
+def prueba_lectura_directa():
+    ruta_archivo = 'insumos/oms/OMS DE NOV 20204.xlsx'
+    extension = ruta_archivo.lower().split('.')[-1]
+    engine = 'xlrd' if extension == 'xls' else 'openpyxl'
 
-    # Procesar archivos Excel
-    inicio_tiempo = time.time()
-    inicio_memoria = psutil.Process().memory_info().rss / (1024 ** 3)  # Convertir a GB
+    df = pd.read_excel(
+        ruta_archivo,
+        engine=engine,
+        dtype={'orden externa': object}
+    )
 
-    # Procesar archivos Excel
-    config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_oms)
-    lector = LectorOMS(config)
-    resultado = lector.dataframe()
+    try:
+        # Crear carpeta resultados si no existe
+        # Convertir a pandas y exportar
+        df.to_csv('insumos/oms/df_prueba.csv', index=False)
+    except Exception as e:
+        print(f"Error al exportar: {str(e)}")
 
-    fin_tiempo = time.time()
-    fin_memoria = psutil.Process().memory_info().rss / (1024 ** 3)  # Convertir a GB
-
-    tiempo_total = fin_tiempo - inicio_tiempo
-    memoria_usada = fin_memoria - inicio_memoria
-
-    print(f"Tiempo total de procesamiento: {tiempo_total:.2f} segundos")
-    print(f"Memoria RAM usada: {memoria_usada:.2f} GB")
-
-    # Unir todos los DataFrames
-    if resultado.is_empty() is False:
-        print("DataFrame final unificado:")
-        print(f"Total de registros: {resultado.height}")
-
-        columnas_mostrar = [
-            'consecutivo',
-            'orden_externa_limpio',
-            'orden_externa_duplicada_limpio',
-            'costo excl imp',
-            'precio vta excl imp',
-            'imp vta',
-            'imp costo',
-            'sub total costo exl imp',
-            'sub total vta exl imp',
-            'forma_pago_1_valor',
-            'forma_pago_2_valor',
-            'forma_pago_3_valor',
-            'cantidad',
-            'monto'
-        ]
-
-        #resultado = resultado.filter(pl.col("orden externa").str.contains(r"^\d+\s\d+$"))
-
-
-        print(resultado.select(columnas_mostrar).slice(0, 5).to_pandas().to_string())  # Muestra las primeras 5 filas
-        return resultado
-    else:
-        print("No se encontraron archivos para procesar")
-        return None
-
-
-def prueba_mercadopago():
-    ruta_archivo_mercaopago = 'insumos/mercadopago/ORIGINAL MERCADOPAGO.xlsx'  # Ajusta esta ruta según tu estructura
-
-    # Procesar archivos Excel
-    inicio_tiempo = time.time()
-    inicio_memoria = psutil.Process().memory_info().rss / (1024 ** 3)  # Convertir a GB
-
-    # Procesar archivos Excel
-    config = ConfiguracionLector(ruta_archivo=ruta_archivo_mercaopago)
-    lector = LectorMercadoPago(config)
-    resultado = lector.dataframe()
-
-    fin_tiempo = time.time()
-    fin_memoria = psutil.Process().memory_info().rss / (1024 ** 3)  # Convertir a GB
-
-    tiempo_total = fin_tiempo - inicio_tiempo
-    memoria_usada = fin_memoria - inicio_memoria
-
-    print(f"Tiempo total de procesamiento: {tiempo_total:.2f} segundos")
-    print(f"Memoria RAM usada: {memoria_usada:.2f} GB")
-
-    # Unir todos los DataFrames
-    if resultado is not None:
-        columnas_mostrar = [
-            'numero_identificacion_limpio',
-            'numero_identificacion'
-        ]
-
-        print(resultado.select(columnas_mostrar).slice(0, 5).to_pandas().to_string())  # Muestra las primeras 5 filas
-
-    else:
-        print("No se encontraron archivos para procesar")
-        return None
-
-
-
-def prueba_erp():
-    ruta_archivo_erp = 'insumos/erp/CARTERA ERP.xls'  # Ajusta esta ruta según tu estructura
-
-    # Procesar archivos Excel
-    inicio_tiempo = time.time()
-    inicio_memoria = psutil.Process().memory_info().rss / (1024 ** 3)  # Convertir a GB
-
-    # Procesar archivos Excel
-    config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
-    lector = LectorERP(config)
-    resultado = lector.dataframe
-
-    fin_tiempo = time.time()
-    fin_memoria = psutil.Process().memory_info().rss / (1024 ** 3)  # Convertir a GB
-
-    tiempo_total = fin_tiempo - inicio_tiempo
-    memoria_usada = fin_memoria - inicio_memoria
-
-    print(f"Tiempo total de procesamiento: {tiempo_total:.2f} segundos")
-    print(f"Memoria RAM usada: {memoria_usada:.2f} GB")
-
-    # Unir todos los DataFrames
-    if resultado.is_empty() is False:
-        print(resultado.slice(0, 5))  # Muestra las primeras 5 filas
-    else:
-        print("No se encontraron archivos para procesar")
-        return None
 
 
 @medir_rendimiento
@@ -211,6 +114,10 @@ def prueba_cruce_oms_mercado_pago():
     config = ConfiguracionLector(ruta_archivo=ruta_archivo_mercaopago)
     lector_mp = LectorMercadoPago(config)
     df_mp = lector_mp.dataframe()
+
+
+    exportar_resultados_excel(df_mp, "df_mp")
+    raise NotImplementedError("Implementar la lectura de archivos ERP y el cruce de datos")
 
     ruta_archivo_erp = 'insumos/erp/CARTERA ERP.xls'  # Ajusta esta ruta según tu estructura
     config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)

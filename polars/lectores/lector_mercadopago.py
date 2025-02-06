@@ -35,8 +35,7 @@ class LectorMercadoPago(LectorArchivos):
         """
 
         self._dataframe = pl.read_excel(
-            self.configuracion.ruta_archivo,
-            infer_schema_length=False
+            self.configuracion.ruta_archivo
         )
 
         self._cambiar_nombres_columnas()
