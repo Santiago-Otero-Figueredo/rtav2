@@ -16,12 +16,14 @@ class LectorMercadoPago(LectorArchivos):
     """
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
-        mapeo_indices_nombres_columnas = {
-            1:'id_operacion_mercado_pago', #ID DE OPERACIÓN EN MERCADO PAGO
-            2:'numero_identificacion', # NÚMERO DE IDENTIFICACIÓN
-            3:'tipo_registro', # TIPO DE REGISTRO
-            7:'monto_bruto_operacion', # MONTO BRUTO DE LA OPERACIÓN
-        }
+        mapeo_indices_nombres_columnas={}
+        if configuracion.cargue_inicial is True:
+            mapeo_indices_nombres_columnas = {
+                1:'id_operacion_mercado_pago', #ID DE OPERACIÓN EN MERCADO PAGO
+                2:'numero_identificacion', # NÚMERO DE IDENTIFICACIÓN
+                3:'tipo_registro', # TIPO DE REGISTRO
+                7:'monto_bruto_operacion', # MONTO BRUTO DE LA OPERACIÓN
+            }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
         self.configuracion = configuracion
@@ -47,8 +49,9 @@ class LectorMercadoPago(LectorArchivos):
         except Exception as e:
             raise ValueError(f"Error al leer el archivo Excel: {str(e)}")
 
-        self._cambiar_nombres_columnas()
-        self._limpieza_datos()
+        if self.configuracion.cargue_inicial is True:
+            self._cambiar_nombres_columnas()
+            self._limpieza_datos()
 
     def _limpieza_datos(self) -> None:
         """
@@ -63,23 +66,38 @@ class LectorMercadoPago(LectorArchivos):
             None: Modifica el DataFrame internamente
         """
         # Limpiar espacios en numero_identificacion
-        self._dataframe['numero_identificacion'] = self._dataframe['numero_identificacion'].str.strip()
+        self._dataframe['numero_identificacion_str'] = self._dataframe['numero_identificacion']
+        self._dataframe['numero_identificacion_str'] = self._dataframe['numero_identificacion_str'].astype(str)
+
 
         # Crear nueva columna con la limpieza del prefijo '20000'
-        self._dataframe['numero_identificacion_limpio'] = (
-            self._dataframe['numero_identificacion'].apply(
-                lambda x: x if x == "20000" else str(x).replace("^20000", "", regex=True)
-            )
+        # Crear columna limpia usando str.replace
+        self._dataframe['numero_identificacion_str_limpio'] = (
+            self._dataframe['numero_identificacion_str']
+            .str.replace('^20000', '', regex=True)
+            .mask(lambda x: x == '', '20000')  # Mantener '20000' cuando ese sea el valor original
         )
-
         # Convertir columnas decimales
-        columnas_decimales = [
-            'monto_bruto_operacion'
+        columnas_decimales = ['monto_bruto_operacion']
+
+        for columna in columnas_decimales:
+            if columna in self._dataframe.columns:
+                self._dataframe[columna] = (
+                    self._dataframe[columna]
+                    .round(2)
+                    .apply(Decimal)
+                )
+
+
+        columnas_ordenadas = [
+            'id_operacion_mercado_pago',
+            'numero_identificacion',
+            "numero_identificacion_str",
+            "numero_identificacion_str_limpio",
+            "tipo_registro",
+            "monto_bruto_operacion",
         ]
 
-        for col in columnas_decimales:
-            self._dataframe[col] = (
-                self._dataframe[col]
-                .round(2)
-                .apply(Decimal)
-            )
+        # Reordenar columnas manteniendo el resto
+        columnas_restantes = [col for col in self._dataframe.columns if col not in columnas_ordenadas]
+        self._dataframe = self._dataframe[columnas_ordenadas + columnas_restantes]

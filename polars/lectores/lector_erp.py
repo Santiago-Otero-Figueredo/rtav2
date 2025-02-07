@@ -14,14 +14,17 @@ class LectorERP(LectorArchivos):
     Clase para la lectura de archivos Excel específicos con nombre OMS usando Pandas.
     """
     def __init__(self, configuracion: 'ConfiguracionLector'):
-        mapeo_indices_nombres_columnas = {
-            3:'cedula_cliente', # Cliente
-            5:'auxiliar', # Auxiliar
-            6:'numero_oc_comercial', # Número O.C. comercial
-            7:'documento_causación', # Docto. causación
-            8:'numero_documento_cruce', # Nro. docto. cruce
-            14:'total_cop', # Total COP
-        }
+
+        mapeo_indices_nombres_columnas = {}
+        if configuracion.cargue_inicial is True:
+            mapeo_indices_nombres_columnas = {
+                3:'cedula_cliente', # Cliente
+                5:'auxiliar', # Auxiliar
+                6:'numero_oc_comercial', # Número O.C. comercial
+                7:'documento_causación', # Docto. causación
+                8:'numero_documento_cruce', # Nro. docto. cruce
+                14:'total_cop', # Total COP
+            }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
         self.configuracion = configuracion
@@ -54,8 +57,9 @@ class LectorERP(LectorArchivos):
         except Exception as e:
             raise ValueError(f"Error al leer el archivo Excel: {str(e)}")
 
-        self._cambiar_nombres_columnas()
-        self._limpieza_datos()
+        if self.configuracion.cargue_inicial is True:
+            self._cambiar_nombres_columnas()
+            self._limpieza_datos()
 
     def _limpieza_datos(self) -> None:
         """
@@ -77,3 +81,4 @@ class LectorERP(LectorArchivos):
             .str.replace(r'\.+$', '', regex=True)  # Quita uno o más puntos al final
             .str.strip()  # Elimina espacios en blanco
         )
+
