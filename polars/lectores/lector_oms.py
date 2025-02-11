@@ -17,8 +17,10 @@ class LectorOMS(LectorArchivos):
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
         mapeo_indices_nombres_columnas = {
+            0:'consecutivo', # consecutivo
             2: 'orden_externa', # orden externa
             29:'cliente_nombre', # cliente nombre
+            43:'estado', # estado
             44:'forma_pago_1', # forma pago 1
             45:'forma_pago_1_referencia', # forma pago 1 referencia
             46:'forma_pago_1_valor', # forma pago 1 valor
@@ -81,6 +83,10 @@ class LectorOMS(LectorArchivos):
             'cantidad'
         ]
 
+        columans_str = [
+            'estado'
+        ]
+
         self._dataframe = self._dataframe.with_columns(
             [
                 (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
@@ -90,7 +96,16 @@ class LectorOMS(LectorArchivos):
                 # Conversión a int (solo si es necesario) en otras columnas
                 (pl.col(col).cast(pl.Int64))  # Convertir a Int64
                 for col in columnas_int  # Otras columnas que deseas convertir a int
+            ]+ [
+                # Conversión a str (solo si es necesario) en otras columnas
+                (pl.col(col).str.strip_chars())  # Convertir a str
+                for col in columans_str  # Otras columnas que deseas convertir a str
             ]
+        )
+
+        # Filtrar registros anulados (no distingue mayúsculas/minúsculas)
+        self._dataframe = self._dataframe.filter(
+            ~pl.col("estado").str.to_lowercase().eq("anulado")
         )
 
         self._dataframe = self._dataframe.with_columns([
@@ -111,9 +126,12 @@ class LectorOMS(LectorArchivos):
 
         for columna in columnas_a_limpiar:
             self._dataframe = self._dataframe.with_columns([
-                pl.when(pl.col(columna) == "20000")
+                pl.when(pl.col(columna).str.contains("^2[0]+$"))  # Verifica si el valor COMPLETO es un 2 seguido de solo ceros usando $ al final
                 .then(pl.col(columna))
-                .otherwise(pl.col(columna).str.replace_all("^20000", ""))
+                .otherwise(
+                    pl.col(columna)
+                    .str.replace_all("^2[0]+", "")  # Quita el 2 inicial seguido de cualquier cantidad de ceros
+                )
                 .alias(f"{columna}_limpio")
             ])
 
@@ -128,8 +146,12 @@ class LectorOMS(LectorArchivos):
             List[str]: Listas de rutas de archivos por tipo
         """
 
-        for archivo in Path(self.configuracion.ruta_carpeta).glob('*'):
-            if archivo.suffix.lower() in ['.xlsx', '.xls']:
-                self.archivos.append(str(archivo))
+        if self.configuracion.ruta_carpeta:
+
+            for archivo in Path(self.configuracion.ruta_carpeta).glob('*'):
+                if archivo.suffix.lower() in ['.xlsx', '.xls']:
+                    self.archivos.append(str(archivo))
+        else:
+            self.archivos = [self.configuracion.ruta_archivo]
 
         return self.archivos

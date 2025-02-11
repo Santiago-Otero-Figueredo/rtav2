@@ -17,12 +17,12 @@ class LectorERP(LectorArchivos):
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
         mapeo_indices_nombres_columnas = {
-            3:'cedula_cliente', # Cliente
-            5:'auxiliar', # Auxiliar
+            3:'cc_erp', # Cliente
+            5:'aux_erp', # Auxiliar
             6:'numero_oc_comercial', # Número O.C. comercial
             7:'documento_causación', # Docto. causación
-            8:'numero_documento_cruce', # Nro. docto. cruce
-            14:'total_cop', # Total COP
+            8:'factura_erp', # Nro. docto. cruce
+            14:'valor_fv_erp', # Total COP
         }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
@@ -56,7 +56,7 @@ class LectorERP(LectorArchivos):
         """
 
         columnas_decimales = [
-            'total_cop'
+            'valor_fv_erp'
         ]
 
         self._dataframe = self._dataframe.with_columns(
@@ -67,6 +67,18 @@ class LectorERP(LectorArchivos):
             ]
         )
 
+        columnas_str = [
+            'cc_erp',
+            'aux_erp',
+            'factura_erp'
+        ]
+
+        self._dataframe = self._dataframe.with_columns(
+            [
+                (pl.col(col).str.strip_chars())
+                for col in columnas_str
+            ]
+        )
 
         self._dataframe = self._dataframe.with_columns([
             pl.col("numero_oc_comercial")

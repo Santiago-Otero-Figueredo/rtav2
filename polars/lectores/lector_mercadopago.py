@@ -20,7 +20,9 @@ class LectorMercadoPago(LectorArchivos):
             1:'id_operacion_mercado_pago', #ID DE OPERACIÓN EN MERCADO PAGO
             2:'numero_identificacion', # NÚMERO DE IDENTIFICACIÓN
             3:'tipo_registro', # TIPO DE REGISTRO
+            4:'descripcion', # DESCRIPCIÓN
             7:'monto_bruto_operacion', # MONTO BRUTO DE LA OPERACIÓN
+            18:'fecha_aprobacion' # FECHA DE APROBACIÓN
         }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
@@ -62,13 +64,21 @@ class LectorMercadoPago(LectorArchivos):
             .alias("numero_identificacion")
         ])
 
-        self._dataframe = self._dataframe.with_columns([
-            # Crear nueva columna con la limpieza del prefijo '20000'
-            pl.when(pl.col('numero_identificacion') == "20000")
-            .then(pl.col('numero_identificacion'))
-            .otherwise(pl.col('numero_identificacion').str.replace_all("^20000", ""))
-            .alias("numero_identificacion_limpio")
-        ])
+        columnas_a_limpiar = ["numero_identificacion"]
+
+        for columna in columnas_a_limpiar:
+            self._dataframe = self._dataframe.with_columns([
+                pl.when(pl.col(columna).str.contains("^2[0]+$"))  # Verifica si el valor COMPLETO es un 2 seguido de solo ceros
+                .then(pl.col(columna))
+                .otherwise(
+                    pl.col(columna)
+                    .str.replace_all("^2[0]+", "")  # Quita el 2 inicial seguido de cualquier cantidad de ceros
+                )
+                .alias(f"{columna}_limpio")
+            ])
+
+
+
 
         self._dataframe = self._dataframe.filter(
             ~pl.col("numero_identificacion").str.contains(r"(?i)total")
