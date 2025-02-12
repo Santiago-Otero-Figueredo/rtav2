@@ -1,6 +1,8 @@
 from lectores.lector_oms import LectorOMS
 from lectores.lector_mercadopago import LectorMercadoPago
 from lectores.lector_erp import LectorERP
+from lectores.lector_addi import LectorADDI
+
 
 from lectores.modelos import ConfiguracionLector
 
@@ -105,7 +107,6 @@ def unir_dataframes_cruce(df_principal: pl.DataFrame, df_adicional: pl.DataFrame
     except Exception as e:
         print(f"Error al unir DataFrames: {str(e)}")
         raise
-
 
 def exportar_multiples_dataframes_excel(
     dataframes: dict[str, pl.DataFrame],
@@ -328,12 +329,9 @@ def main():
     """
     Función principal que lee todos los archivos de la carpeta OMS y los une en un solo DataFrame.
     """
-    #prueba_lectura_directa()
-    prueba_cruce_oms_mercado_pago()
-        #prueba_oms()
-    #prueba_mercadopago()
-    #prueba_erp()
 
+    #prueba_cruce_oms_mercado_pago()
+    prueba_cruce_addi_erp()
 
 
 
@@ -527,17 +525,28 @@ def prueba_cruce_oms_mercado_pago():
 
     dataframes_a_exportar = {
         "Informacion original": df_cruce,
-        "Cruce Principal": df_cruce_cedulas_facturas,
+        "Cruce principal": df_cruce_cedulas_facturas,
         "Facturas devolucion": df_devoluciones,
-        "Facturas Canceladas": df_canceladas,
-        "Facturas dobles": df_facturas_dobles,
+        "Facturas canceladas": df_canceladas,
+        "Facturas duplicadas": df_facturas_dobles,
         "Facturas sin cruzar": df_sin_factura,
     }
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo")
 
 
+def prueba_cruce_addi_erp():
 
+    ruta_carpeta_addi = 'insumos/addi/'  # Ajusta esta ruta según tu estructura
+    config_addi = ConfiguracionLector(ruta_carpeta=ruta_carpeta_addi)
+    lector_addi = LectorADDI(config_addi)
+    df_addi = lector_addi.dataframe()
+
+    dataframes_a_exportar = {
+        "Informacion original": df_addi
+    }
+
+    exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi")
 
 if __name__ == "__main__":
     main()
