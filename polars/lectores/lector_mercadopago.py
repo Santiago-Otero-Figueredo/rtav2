@@ -22,7 +22,9 @@ class LectorMercadoPago(LectorArchivos):
             3:'tipo_registro', # TIPO DE REGISTRO
             4:'descripcion', # DESCRIPCIÓN
             7:'monto_bruto_operacion', # MONTO BRUTO DE LA OPERACIÓN
-            18:'fecha_aprobacion' # FECHA DE APROBACIÓN
+            18:'fecha_aprobacion', # FECHA DE APROBACIÓN
+            26:'impuestos_desagregados' # IMPUESTOS DESAGREGADOS
+
         }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
@@ -95,3 +97,17 @@ class LectorMercadoPago(LectorArchivos):
                 for col in columnas_decimales
             ]
         )
+
+
+        # Sustituir las comillas dobles de inicio y final por comillas simples en la columna impuestos_desagregados
+        # Se encadenan dos reemplazos: uno para la comilla inicial y otro para la comilla final
+        self._dataframe = self._dataframe.with_columns([
+            pl.when(pl.col("impuestos_desagregados").is_not_null())
+            .then(
+                pl.col("impuestos_desagregados")
+                .str.replace(r'^"', "")
+                .str.replace(r'"$', "")
+            )
+            .otherwise(pl.col("impuestos_desagregados"))
+            .alias("impuestos_desagregados")
+        ])
