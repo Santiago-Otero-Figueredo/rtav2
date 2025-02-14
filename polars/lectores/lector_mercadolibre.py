@@ -10,23 +10,22 @@ if TYPE_CHECKING:
     from lectores.modelos import ConfiguracionLector
 
 
-class LectorADDI(LectorArchivos):
+class LectorMercadoLibre(LectorArchivos):
     """
         Clase para la lectura de archivos Excel específicos con nombre OMS usando Polars.
     """
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
         mapeo_indices_nombres_columnas = {
-            7:'numero_documento', # Número de documento
-            11:'total_ventas' # Total Ventas (1)
+            0: 'numero_identificacion', # # de venta
+            24: 'cedula' # Tipo y número de documento
         }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
         self.configuracion = configuracion
         self.archivos = []
 
-        self.__obtener_archivos_addi()
-
+        self.__obtener_archivos_mercadolibe()
         self.leer_archivo()
 
 
@@ -44,20 +43,24 @@ class LectorADDI(LectorArchivos):
 
             df = pl.read_excel(
                 archivo,
-                infer_schema_length=False,
-                sheet_id=2
+                infer_schema_length=False
             )
 
-             # Extraer la fila 6 (índice 5) como nombres de columnas
-            column_names = [self.__limpiar_str(name) if name is not None else f"col_{i}" for i, name in enumerate(df.row(4))]
+              # Extraer la fila 6 (índice 5) como nombres de columnas
+            column_names = [self.__limpiar_str(name) if name is not None else f"col_{i}" for i, name in enumerate(df.row(3))]
+
+            # Hacer que los nombres sean únicos
+            column_names = self.__hacer_nombres_unicos(column_names)
 
             # Filtrar desde la fila 7 en adelante (índice 6)
-            df = df.slice(5)
+            df = df.slice(4)
 
             # Asignar los nuevos nombres de columna
             df = df.rename(dict(zip(df.columns, column_names)))
 
             self._dataframe = self._dataframe.vstack(df)
+
+
 
         self._cambiar_nombres_columnas()
         self._limpieza_datos()
@@ -65,23 +68,27 @@ class LectorADDI(LectorArchivos):
 
     def _limpieza_datos(self) -> None:
 
-        columnas_decimales = [
-            'total_ventas'
-        ]
+
+        columnas_a_limpiar = ["numero_identificacion"]
+
+        for columna in columnas_a_limpiar:
+            self._dataframe = self._dataframe.with_columns([
+                pl.when(pl.col(columna).str.contains("^2[0]+$"))  # Verifica si el valor COMPLETO es un 2 seguido de solo ceros usando $ al final
+                .then(pl.col(columna))
+                .otherwise(
+                    pl.col(columna)
+                    .str.replace_all("^2[0]+", "")  # Quita el 2 inicial seguido de cualquier cantidad de ceros
+                )
+                .alias(f"{columna}_limpio")
+            ])
 
         self._dataframe = self._dataframe.with_columns(
-            [
-                (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
-                .cast(pl.Decimal(20, 2))  # Convertir a Decimal(10, 2)
-                for col in columnas_decimales
-            ]
+            pl.col("cedula").str.extract(r"(\d+)$").alias("cedula")
         )
 
 
 
-
-
-    def __obtener_archivos_addi(self) -> List[str]:
+    def __obtener_archivos_mercadolibe(self) -> List[str]:
         """
         Obtiene todos los archivos Excel y CSV de la carpeta especificada.
 
@@ -99,5 +106,20 @@ class LectorADDI(LectorArchivos):
 
         return self.archivos
 
+
     def __limpiar_str(self, texto):
         return texto.strip().replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+    def __hacer_nombres_unicos(self, column_names):
+        seen = {}
+        unique_names = []
+
+        for name in column_names:
+            if name in seen:
+                seen[name] += 1
+                unique_names.append(f"{name}_{seen[name]}")
+            else:
+                seen[name] = 0
+                unique_names.append(name)
+
+        return unique_names

@@ -2,7 +2,9 @@ from lectores.lector_oms import LectorOMS
 from lectores.lector_mercadopago import LectorMercadoPago
 from lectores.lector_erp import LectorERP
 from lectores.lector_addi import LectorADDI
+from lectores.lector_mercadolibre import LectorMercadoLibre
 
+from cruces.cruce_oms_erp_mp_ml import CruceOmsErpMpMl
 
 from lectores.modelos import ConfiguracionLector
 
@@ -331,20 +333,25 @@ def main():
     """
 
     #prueba_cruce_oms_mercado_pago()
-    prueba_cruce_addi_erp()
+    #prueba_cruce_addi_erp()
 
-
+    prueba_cruce_oms_mercado_pago_clase()
 
 @medir_rendimiento
-def prueba_cruce_oms_mercado_pago():
+def prueba_cruce_oms_mercado_pago_clase():
 
     ruta_carpeta_oms = 'insumos/oms/'
     config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_oms)
     lector_oms = LectorOMS(config)
     df_oms = lector_oms.dataframe()
 
-    ruta_archivo_mercaopago = 'insumos/mercadopago/reserve-release-686352448-2025-02-06-072601.xlsx'  # Ajusta esta ruta según tu estructura
-    config = ConfiguracionLector(ruta_archivo=ruta_archivo_mercaopago)
+    ruta_carpeta_mercadolibre = 'insumos/mercadolibre/'
+    config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_mercadolibre)
+    lector_mercadolibre = LectorMercadoLibre(config)
+    df_mercadolibre = lector_mercadolibre.dataframe()
+
+    ruta_archivo_mercdaopago = 'insumos/mercadopago/reserve-release-686352448-2025-02-06-072601.xlsx'  # Ajusta esta ruta según tu estructura
+    config = ConfiguracionLector(ruta_archivo=ruta_archivo_mercdaopago)
     lector_mp = LectorMercadoPago(config)
     df_mp = lector_mp.dataframe()
 
@@ -355,9 +362,10 @@ def prueba_cruce_oms_mercado_pago():
 
     df_cruce = df_mp.clone()
 
+
     print("\nResultados del cruce:", df_cruce.height)
 
-    # Realizar el cruce de datos
+    # 1 Realizar el cruce de datos de mercadopago con la OMS
     df_cruce = df_cruce.join(
         df_oms.select(["orden_externa_limpio", "consecutivo"]),  # Seleccionamos solo las columnas necesarias
         left_on="numero_identificacion_limpio",  # Columna en df_cruce
@@ -365,11 +373,10 @@ def prueba_cruce_oms_mercado_pago():
         how="left"  # Mantener todos los registros de df_cruce
     ).rename({"consecutivo": "num_oms"})
 
-
     # Mostrar resultados del cruce
     print("\nResultados del cruce:", df_cruce.height)
 
-    # Realizar el cruce de datos
+    # 2 Realizar el cruce de datos mercadopago-OMS con ERP
     df_cruce = df_cruce.join(
         df_erp.select(["numero_oc_comercial", "factura_erp", "cc_erp", "valor_fv_erp", "aux_erp"]),  # Seleccionamos solo las columnas necesarias
         left_on="num_oms",  # Columna en df_cruce
@@ -380,16 +387,17 @@ def prueba_cruce_oms_mercado_pago():
     # Mostrar resultados del cruce
     print("\nResultados del cruce:", df_cruce.height)
 
+    # Desagregando la columna impuestos_desagregados en iva, fuente, ica
     df_cruce = df_cruce.with_columns([
         pl.col("impuestos_desagregados").map_elements(lambda x: extraer_valores_impuestos(x, "iva")).alias("iva"),
         pl.col("impuestos_desagregados").map_elements(lambda x: extraer_valores_impuestos(x, "fuente")).alias("fuente"),
-        pl.col("impuestos_desagregados").map_elements(lambda x: extraer_valores_impuestos(x, "ica_bogota")).alias("ica")
+        pl.col("impuestos_desagregados").map_elements(lambda x: extraer_valores_impuestos(x, "ica")).alias("ica")
     ])
 
     # Realizar el cruce y crear columna de diferencia con ajuste de valores cercanos a 0
     df_cruce = df_cruce.with_columns([
         pl.when(
-            pl.col("valor_fv_erp").sub(pl.col("monto_bruto_operacion")).abs() < 1
+            (pl.col("valor_fv_erp") - pl.col("monto_bruto_operacion")).abs() < 0.02
         ).then(
             pl.lit(0)  # Si la diferencia absoluta es menor a 1, asignar 0
         ).otherwise(
@@ -397,7 +405,7 @@ def prueba_cruce_oms_mercado_pago():
         ).alias("diferencia_valores")
     ])
 
-     # Definir orden específico de columnas
+    # Definir orden específico de columnas
     columnas_ordenadas = [
         'numero_identificacion',
         "numero_identificacion_limpio",
@@ -425,7 +433,83 @@ def prueba_cruce_oms_mercado_pago():
         "factura_erp",  # Orden por defecto (ascendente)
         "cc_erp",
         pl.col("fecha_aprobacion").sort_by("fecha_aprobacion", descending=False)  # Orden explícito
+    ]).with_columns([
+        pl.lit(0).cast(pl.Int64).alias("cruzado_en_mercadolibre")
     ])
+
+    # 3 Obtener registros sin factura_erp (nulos o vacíos)
+    df_sin_factura = df_cruce.filter(
+        pl.col("factura_erp").is_null() |
+        (pl.col("factura_erp").cast(pl.Utf8).fill_null("").str.strip_chars().eq(""))
+    )
+
+    df_cruce_mercado_libre = df_sin_factura.join(
+        df_mercadolibre.select([
+            "numero_identificacion",
+            "numero_identificacion_limpio",
+            pl.col("cedula")  # Renombrar 'cedula' a 'cc_erp'
+        ]),
+        left_on="numero_identificacion_limpio",  # Columna en df_mercadolibre
+        right_on="numero_identificacion_limpio",  # Columna en df_erp
+        how="left"  # Mantener todos los registros de df_sin_factura
+    ).with_columns([
+        pl.coalesce([pl.col("cedula"), pl.col("cc_erp")]).alias("cc_erp"),
+        pl.lit(1).cast(pl.Int64).alias("cruzado_en_mercadolibre")
+    ]).drop("cedula")# Eliminamos la columna temporal
+
+
+    df_cruce_mercado_libre = df_cruce_mercado_libre.join(
+        df_erp.select(["factura_erp", "cc_erp", "valor_fv_erp", "aux_erp"]),  # Seleccionamos solo las columnas necesarias
+        left_on="cc_erp",  # Columna en df_cruce
+        right_on="cc_erp",  # Columna en df_oms
+        how="left"  # Mantener todos los registros de df_cruce
+    ).with_columns([
+        pl.coalesce([pl.col("factura_erp_right"), pl.col("factura_erp")]).alias("factura_erp"),
+        pl.coalesce([pl.col("valor_fv_erp_right"), pl.col("valor_fv_erp")]).alias("valor_fv_erp"),
+        pl.coalesce([pl.col("aux_erp_right"), pl.col("aux_erp")]).alias("aux_erp"),
+    ]).drop(
+        [
+            'factura_erp_right',
+            'valor_fv_erp_right',
+            'aux_erp_right',
+            'numero_identificacion_right'
+        ]
+    )
+
+    # Filtrar registros donde "nombre" NO es nulo o vacío
+    df_con_factura = df_cruce_mercado_libre.filter(pl.col("factura_erp").is_not_null() & (pl.col("factura_erp") != ""))
+
+    # Filtrar registros donde "nombre" ES nulo o vacío
+    df_sin_facturas_asociadas = df_cruce_mercado_libre.filter(pl.col("factura_erp").is_null() | (pl.col("factura_erp") == ""))
+
+    df_cruce = unir_dataframes_cruce(df_cruce, df_con_factura)
+
+    df_cruce = df_cruce.with_columns([
+        pl.when(
+             (pl.col("valor_fv_erp") - pl.col("monto_bruto_operacion")).abs() < 0.02
+        ).then(
+            pl.lit(0)  # Si la diferencia absoluta es menor a 0,02, asignar 0
+        ).otherwise(
+            pl.col("valor_fv_erp") - pl.col("monto_bruto_operacion")  # Mantener la diferencia original
+        ).alias("diferencia_valores")
+    ])
+
+            # Reordenar columnas manteniendo el resto
+    df_cruce = df_cruce.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
+    columnas_ordenadas.remove('diferencia_valores')
+    # Reordenar columnas manteniendo el resto
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.select(
+        columnas_ordenadas + [
+            col for col in df_sin_facturas_asociadas.columns
+            if col not in columnas_ordenadas
+        ]
+    )
 
 
     # Filtrar registros con diferencia negativa
@@ -474,6 +558,7 @@ def prueba_cruce_oms_mercado_pago():
     df_cruce_cedulas_facturas = unir_dataframes_cruce(df_cruce, df_cruce_cedulas)
 
 
+
     df_canceladas = obtener_facturas_canceladas(df_cruce_cedulas_facturas)
     listados_facturas_canceladas = df_canceladas.select("factura_erp").unique().to_series().to_list()
     df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
@@ -486,17 +571,17 @@ def prueba_cruce_oms_mercado_pago():
         ~pl.col("factura_erp").is_in(listados_facturas_devueltas)
     )
 
-
-    # Filtrar registros con diferencia negativa
-    listados_facturas_negativas = df_cruce_cedulas_facturas.filter(
-        pl.col("diferencia_valores") < 0
-    ).select("factura_erp").unique().to_series().to_list()
-
-    print('listados_facturas_negativas: ', listados_facturas_negativas)
-    df_facturas_negativas = df_cruce.filter(
-        # Solo mantener registros donde la factura_erp no exista en el cruce original
-        pl.col("factura_erp").is_in(listados_facturas_negativas)
+    df_negativas = df_cruce_cedulas_facturas.filter(pl.col("diferencia_valores") < 0)
+    listados_facturas_negativas = df_negativas.select("factura_erp").unique().to_series().to_list()
+    df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
+        ~pl.col("factura_erp").is_in(listados_facturas_negativas)
     )
+
+    # print('listados_facturas_negativas: ', listados_facturas_negativas)
+    # df_facturas_negativas = df_cruce.filter(
+    #     # Solo mantener registros donde la factura_erp no exista en el cruce original
+    #     pl.col("factura_erp").is_in(listados_facturas_negativas)
+    # )
 
     df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
         # Solo mantener registros donde la diferecnia sea mayor a 0
@@ -517,36 +602,78 @@ def prueba_cruce_oms_mercado_pago():
     # Unir df_cruce_cedulas_facturas con df_facturas_dobles
     df_cruce_cedulas_facturas = unir_dataframes_cruce(df_cruce_cedulas_facturas, df_facturas_dobles)
 
-    # Obtener registros sin factura_erp (nulos o vacíos)
-    df_sin_factura = df_cruce.filter(
-        pl.col("factura_erp").is_null() |
-        (pl.col("factura_erp").cast(pl.Utf8).fill_null("").str.strip_chars().eq(""))
-    )
-
     dataframes_a_exportar = {
         "Informacion original": df_cruce,
         "Cruce principal": df_cruce_cedulas_facturas,
         "Facturas devolucion": df_devoluciones,
         "Facturas canceladas": df_canceladas,
         "Facturas duplicadas": df_facturas_dobles,
-        "Facturas sin cruzar": df_sin_factura,
+        "Facturas negativas": df_negativas,
+        "Facturas sin cruzar": df_sin_facturas_asociadas,
     }
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo")
 
 
+
+@medir_rendimiento
 def prueba_cruce_addi_erp():
+    ruta_archivo_erp = 'insumos/erp/ERP.xls'  # Ajusta esta ruta según tu estructura
+    config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
+    lector = LectorERP(config)
+    df_erp = lector.dataframe()
 
     ruta_carpeta_addi = 'insumos/addi/'  # Ajusta esta ruta según tu estructura
     config_addi = ConfiguracionLector(ruta_carpeta=ruta_carpeta_addi)
     lector_addi = LectorADDI(config_addi)
     df_addi = lector_addi.dataframe()
 
+    df_cruce = df_addi.clone()
+
+        # Realizar el cruce de datos
+    df_cruce = df_cruce.join(
+        df_erp.select(["cc_erp", "aux_erp", "factura_erp", "valor_fv_erp"]),  # Seleccionamos solo las columnas necesarias
+        left_on="numero_documento",  # Columna en df_cruce
+        right_on="cc_erp",  # Columna en df_oms
+        how="left"  # Mantener todos los registros de df_cruce
+    )
+
+    # Realizar el cruce y crear columna de diferencia con ajuste de valores cercanos a 0
+    df_cruce = df_cruce.with_columns([
+        pl.when(
+            pl.col("valor_fv_erp").sub(pl.col("total_ventas")).abs() < 1
+        ).then(
+            pl.lit(0)  # Si la diferencia absoluta es menor a 1, asignar 0
+        ).otherwise(
+            pl.col("valor_fv_erp") - pl.col("total_ventas")  # Mantener la diferencia original
+        ).alias("diferencia_valores")
+    ])
+
+
+
+   # Definir orden específico de columnas
+    columnas_ordenadas = [
+        "numero_documento",
+        "total_ventas",
+        "factura_erp",
+        "aux_erp",
+        "valor_fv_erp",
+        "diferencia_valores"
+    ]
+
+    # Reordenar columnas manteniendo el resto
+    df_cruce = df_cruce.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
     dataframes_a_exportar = {
-        "Informacion original": df_addi
+        "Informacion original": df_cruce
     }
 
-    exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi")
+    exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi_cruce")
 
 if __name__ == "__main__":
     main()
