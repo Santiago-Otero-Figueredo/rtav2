@@ -4,6 +4,10 @@ from lectores.lector_erp import LectorERP
 from lectores.lector_addi import LectorADDI
 from lectores.lector_mercadolibre import LectorMercadoLibre
 
+from lectores.sistecredito.lector_facturas import LectorSisCredFacturas
+from lectores.sistecredito.lector_pagare import LectorSisCredPagare
+
+
 from cruces.cruce_oms_erp_mp_ml import CruceOmsErpMpMl
 
 from lectores.modelos import ConfiguracionLector
@@ -335,7 +339,28 @@ def main():
     #prueba_cruce_oms_mercado_pago()
     #prueba_cruce_addi_erp()
 
-    prueba_cruce_oms_mercado_pago_clase()
+    #prueba_cruce_oms_mercado_pago_clase()
+
+    prueba_sistecredito()
+
+@medir_rendimiento
+def prueba_sistecredito():
+
+    # ruta_carpeta_factura = 'insumos/sistecredito/facturas/Facturas_pagadas SISTECREDITO.xlsx'
+    # config = ConfiguracionLector(ruta_archivo=ruta_carpeta_factura)
+    # lector_factura = LectorSisCredFacturas(config)
+    # df_factura = lector_factura.dataframe()
+
+
+    ruta_carpeta_pagare = 'insumos/sistecredito/pagares/PAGARES SISTECREDITO.xlsx'
+    config = ConfiguracionLector(ruta_archivo=ruta_carpeta_pagare)
+    lector_pagare = LectorSisCredPagare(config)
+    df_pagare = lector_pagare.dataframe()
+
+
+    print(df_pagare)
+
+
 
 @medir_rendimiento
 def prueba_cruce_oms_mercado_pago_clase():
@@ -350,12 +375,12 @@ def prueba_cruce_oms_mercado_pago_clase():
     lector_mercadolibre = LectorMercadoLibre(config)
     df_mercadolibre = lector_mercadolibre.dataframe()
 
-    ruta_archivo_mercdaopago = 'insumos/mercadopago/reserve-release-686352448-2025-02-06-072601.xlsx'  # Ajusta esta ruta según tu estructura
+    ruta_archivo_mercdaopago = 'insumos/mercadopago/MERCADOPAGO 172.xlsx'  # Ajusta esta ruta según tu estructura
     config = ConfiguracionLector(ruta_archivo=ruta_archivo_mercdaopago)
     lector_mp = LectorMercadoPago(config)
     df_mp = lector_mp.dataframe()
 
-    ruta_archivo_erp = 'insumos/erp/ZOMAC - 2025-02-06T142211.293.xls'  # Ajusta esta ruta según tu estructura
+    ruta_archivo_erp = 'insumos/erp/ERP.xls'  # Ajusta esta ruta según tu estructura
     config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
     lector = LectorERP(config)
     df_erp = lector.dataframe()
@@ -477,12 +502,18 @@ def prueba_cruce_oms_mercado_pago_clase():
     )
 
     # Filtrar registros donde "nombre" NO es nulo o vacío
-    df_con_factura = df_cruce_mercado_libre.filter(pl.col("factura_erp").is_not_null() & (pl.col("factura_erp") != ""))
+    # df_con_factura = df_cruce_mercado_libre.filter(pl.col("factura_erp").is_not_null() & (pl.col("factura_erp") != ""))
 
     # Filtrar registros donde "nombre" ES nulo o vacío
     df_sin_facturas_asociadas = df_cruce_mercado_libre.filter(pl.col("factura_erp").is_null() | (pl.col("factura_erp") == ""))
 
-    df_cruce = unir_dataframes_cruce(df_cruce, df_con_factura)
+
+    listados_facturas_mercadolibre = df_cruce_mercado_libre.select("factura_erp").unique().to_series().to_list().remove(None)
+    df_cruce = df_cruce.filter(
+        ~pl.col("factura_erp").is_in(listados_facturas_mercadolibre)
+    )
+
+    df_cruce = unir_dataframes_cruce(df_cruce, df_cruce_mercado_libre)
 
     df_cruce = df_cruce.with_columns([
         pl.when(
@@ -576,12 +607,6 @@ def prueba_cruce_oms_mercado_pago_clase():
     df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
         ~pl.col("factura_erp").is_in(listados_facturas_negativas)
     )
-
-    # print('listados_facturas_negativas: ', listados_facturas_negativas)
-    # df_facturas_negativas = df_cruce.filter(
-    #     # Solo mantener registros donde la factura_erp no exista en el cruce original
-    #     pl.col("factura_erp").is_in(listados_facturas_negativas)
-    # )
 
     df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
         # Solo mantener registros donde la diferecnia sea mayor a 0
