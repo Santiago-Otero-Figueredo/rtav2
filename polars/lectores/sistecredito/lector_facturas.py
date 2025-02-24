@@ -17,7 +17,7 @@ class LectorSisCredFacturas(LectorArchivos):
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
         mapeo_indices_nombres_columnas = {
-            1:'pagare', # Pagaré
+            1:'consecutivo_pagare', # Pagaré
             2:'factura_codigo', # Factura Codigo
             4:'fecha_creacion', #  Fecha Creación
             5:'valor_factura', # Valor Factura
@@ -85,7 +85,7 @@ class LectorSisCredFacturas(LectorArchivos):
                 break  # Salimos del loop una vez encontrada
 
         # Rellenar valores nulos en la columna "Almacén" usando forward fill (ffill)
-        columna_almacen = "Almacen"  # Ajustar según el nombre final de la columna en el DataFrame
+        columna_almacen = "almacen"  # Ajustar según el nombre final de la columna en el DataFrame
         if columna_almacen in df_filtrado.columns:
             df_filtrado = df_filtrado.with_columns(
                 df_filtrado[columna_almacen].fill_null(strategy="forward")
@@ -97,8 +97,8 @@ class LectorSisCredFacturas(LectorArchivos):
         self._cambiar_nombres_columnas()
 
         # Filtrar las filas donde la columna "pagare" NO contenga "Total". Esto es para quitar los registros de subtotal que tiene cada almacen
-        self._dataframe = self._dataframe.filter(~self._dataframe["pagare"].cast(pl.Utf8).str.contains(r"(?i)Total", strict=False))
-        self._dataframe = self._dataframe.select(['almacen', 'pagare', 'factura_codigo', 'fecha_creacion', 'valor_factura', 'valor_neto_pagar'])
+        self._dataframe = self._dataframe.filter(~self._dataframe["consecutivo_pagare"].cast(pl.Utf8).str.contains(r"(?i)Total", strict=False))
+        self._dataframe = self._dataframe.select(['almacen', 'consecutivo_pagare', 'factura_codigo', 'fecha_creacion', 'valor_factura', 'valor_neto_pagar'])
 
 
         self._limpieza_datos()
@@ -113,4 +113,26 @@ class LectorSisCredFacturas(LectorArchivos):
         2. Elimina espacios en blanco después de quitar los puntos
         """
 
-        pass
+        self._dataframe = self._dataframe.with_columns(
+            pl.col("almacen")
+            .str.strip_chars()  # 🔹 Elimina espacios en blanco al inicio y al final
+            .alias("almacen")
+        )
+
+        self._dataframe = self._dataframe.with_columns(
+            pl.col("consecutivo_pagare")
+            .str.strip_chars()  # 🔹 Elimina espacios en blanco al inicio y al final
+            .alias("consecutivo_pagare")
+        )
+
+        columnas_decimales = [
+            'valor_factura'
+        ]
+
+        self._dataframe = self._dataframe.with_columns(
+            [
+                (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
+                .cast(pl.Decimal(20, 2))  # Convertir a Decimal(10, 2)
+                for col in columnas_decimales
+            ]
+        )

@@ -102,9 +102,9 @@ class LectorSisCredPagare(LectorArchivos):
 
         self._dataframe = self._dataframe.select([
             'almacen',
+            'consecutivo_pagare',
             'asesor',
             'fecha_consulta',
-            'consecutivo_pagare',
             'documento_identidad',
             'factura',
             'valor_credito',
@@ -126,4 +126,16 @@ class LectorSisCredPagare(LectorArchivos):
             pl.col("documento_identidad")
             .str.replace(r"^\D+", "", literal=False)  # 🔹 Quita solo los caracteres no numéricos al inicio
             .alias("documento_identidad")
+        )
+
+        self._dataframe = self._dataframe.with_columns(
+            pl.col("almacen")
+            .str.strip_chars()  # 🔹 Elimina espacios en blanco al inicio y al final
+            .alias("almacen")
+        )
+
+        self._dataframe = self._dataframe.with_columns(
+            pl.col("consecutivo_pagare")
+            .str.strip_chars()  # 🔹 Elimina espacios en blanco al inicio y al final
+            .alias("consecutivo_pagare")
         )

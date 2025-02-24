@@ -346,10 +346,10 @@ def main():
 @medir_rendimiento
 def prueba_sistecredito():
 
-    # ruta_carpeta_factura = 'insumos/sistecredito/facturas/Facturas_pagadas SISTECREDITO.xlsx'
-    # config = ConfiguracionLector(ruta_archivo=ruta_carpeta_factura)
-    # lector_factura = LectorSisCredFacturas(config)
-    # df_factura = lector_factura.dataframe()
+    ruta_carpeta_factura = 'insumos/sistecredito/facturas/Facturas_pagadas SISTECREDITO.xlsx'
+    config = ConfiguracionLector(ruta_archivo=ruta_carpeta_factura)
+    lector_factura = LectorSisCredFacturas(config)
+    df_factura = lector_factura.dataframe()
 
 
     ruta_carpeta_pagare = 'insumos/sistecredito/pagares/PAGARES SISTECREDITO.xlsx'
@@ -357,8 +357,76 @@ def prueba_sistecredito():
     lector_pagare = LectorSisCredPagare(config)
     df_pagare = lector_pagare.dataframe()
 
+    ruta_archivo_erp = 'insumos/erp/ERP.xls'  # Ajusta esta ruta según tu estructura
+    config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
+    lector = LectorERP(config)
+    df_erp = lector.dataframe()
 
-    print(df_pagare)
+    # 🔹 Realizar un LEFT JOIN en base a 'almacen' y 'consecutivo_pagare'
+    df_cruce_factura_pagare = df_factura.join(
+        df_pagare.select(["almacen", "consecutivo_pagare", "documento_identidad"]),
+        on=["almacen", "consecutivo_pagare"],
+        how="left"
+    )
+
+    df_cruce_erp = df_cruce_factura_pagare.join(
+        df_erp.select(["cc_erp", "aux_erp", "factura_erp", "valor_fv_erp"]),
+        left_on="documento_identidad", # Columna en df_cruce_factura_pagare
+        right_on="cc_erp", # Columna en df_cruce_erp
+        how="left"
+    )
+
+    # Separar la columna en dos partes usando `.struct`
+    df_cruce_erp = df_cruce_erp.with_columns(
+        df_cruce_erp["factura_erp"]
+        .str.split_exact("-", 1)
+        .alias("factura_erp_split")  # Se convierte en un Struct con dos campos
+    )
+
+    # Acceder a los campos del Struct correctamente
+    df_cruce_erp = df_cruce_erp.with_columns([
+        pl.col("factura_erp_split").struct.field("field_0").alias("tipo_factura"),
+        pl.col("factura_erp_split").struct.field("field_1").alias("numero_factura")
+    ]).drop(['factura_erp_split'])
+
+    df_cruce_erp = df_cruce_erp.with_columns(
+        (pl.col("valor_factura") - pl.col("valor_fv_erp")).alias("diferencia")
+    )
+
+    print(df_cruce_erp)
+    print(df_cruce_erp.filter(pl.col("factura_erp").is_not_null()))
+
+    # Ordenar por "almacen", "aux_erp", "consecutivo_pagare", "documento_identidad"
+    df_cruce_erp = df_cruce_erp.select([
+        'almacen',
+        'consecutivo_pagare',
+        'factura_codigo',
+        'fecha_creacion',
+        'valor_factura',
+        'valor_neto_pagar',
+        'documento_identidad',
+        'aux_erp',
+        'factura_erp',
+        'tipo_factura',
+        'numero_factura',
+        'valor_fv_erp',
+        'diferencia',
+
+    ])
+    df_cruce_erp = df_cruce_erp.sort(["almacen", "aux_erp", "consecutivo_pagare", "documento_identidad"])
+
+    dataframes_a_exportar = {
+        "Factura": df_factura,
+        "Pagare": df_pagare,
+        "Cruce factura pagare": df_cruce_factura_pagare,
+        "Cruce erp": df_cruce_erp,
+    }
+
+
+
+
+    exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo_siscredito")
+
 
 
 
