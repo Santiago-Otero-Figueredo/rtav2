@@ -7,7 +7,6 @@ from lectores.lector_mercadolibre import LectorMercadoLibre
 from lectores.sistecredito.lector_facturas import LectorSisCredFacturas
 from lectores.sistecredito.lector_pagare import LectorSisCredPagare
 
-
 from cruces.cruce_oms_erp_mp_ml import CruceOmsErpMpMl
 
 from lectores.modelos import ConfiguracionLector
@@ -21,7 +20,6 @@ import time
 import psutil
 import os
 import pandas as pd
-
 
 import json
 
@@ -335,13 +333,11 @@ def main():
     """
     Función principal que lee todos los archivos de la carpeta OMS y los une en un solo DataFrame.
     """
-
-    #prueba_cruce_oms_mercado_pago()
     #prueba_cruce_addi_erp()
+    prueba_cruce_oms_mercado_pago_clase()
 
-    #prueba_cruce_oms_mercado_pago_clase()
+    #prueba_sistecredito()
 
-    prueba_sistecredito()
 
 @medir_rendimiento
 def prueba_sistecredito():
@@ -350,7 +346,6 @@ def prueba_sistecredito():
     config = ConfiguracionLector(ruta_archivo=ruta_carpeta_factura)
     lector_factura = LectorSisCredFacturas(config)
     df_factura = lector_factura.dataframe()
-
 
     ruta_carpeta_pagare = 'insumos/sistecredito/pagares/PAGARES SISTECREDITO.xlsx'
     config = ConfiguracionLector(ruta_archivo=ruta_carpeta_pagare)
@@ -413,6 +408,7 @@ def prueba_sistecredito():
         'diferencia',
 
     ])
+
     df_cruce_erp = df_cruce_erp.sort(["almacen", "aux_erp", "consecutivo_pagare", "documento_identidad"])
 
     dataframes_a_exportar = {
@@ -426,8 +422,6 @@ def prueba_sistecredito():
 
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo_siscredito")
-
-
 
 
 @medir_rendimiento
@@ -454,7 +448,6 @@ def prueba_cruce_oms_mercado_pago_clase():
     df_erp = lector.dataframe()
 
     df_cruce = df_mp.clone()
-
 
     print("\nResultados del cruce:", df_cruce.height)
 
@@ -576,7 +569,10 @@ def prueba_cruce_oms_mercado_pago_clase():
     df_sin_facturas_asociadas = df_cruce_mercado_libre.filter(pl.col("factura_erp").is_null() | (pl.col("factura_erp") == ""))
 
 
-    listados_facturas_mercadolibre = df_cruce_mercado_libre.select("factura_erp").unique().to_series().to_list().remove(None)
+    listados_facturas_mercadolibre = [
+        factura for factura in df_cruce_mercado_libre.select("factura_erp").unique().to_series().to_list()
+        if factura is not None
+    ]
     df_cruce = df_cruce.filter(
         ~pl.col("factura_erp").is_in(listados_facturas_mercadolibre)
     )
@@ -610,6 +606,37 @@ def prueba_cruce_oms_mercado_pago_clase():
         ]
     )
 
+
+    listados_facturas_reseve = [
+         factura for factura in df_sin_facturas_asociadas.filter(pl.col("descripcion").str.contains('reserve')).select("numero_identificacion_limpio").unique().to_series().to_list()
+         if factura is not None and factura != ''
+    ]
+    df_facturas_reservadas = df_cruce.filter(
+        pl.col("numero_identificacion_limpio").is_in(listados_facturas_reseve)
+    )
+
+    # Agrupar por "categoria" y sumar las columnas "ventas" y "descuentos"
+    df_facturas_reservadas_sumatoria = df_facturas_reservadas.group_by("numero_identificacion_limpio").agg(
+        pl.col("iva").sum().alias("total_iva"),
+        pl.col("fuente").sum().alias("total_fuente"),
+        pl.col("ica").sum().alias("total_ica"),
+        pl.col("comision_mercado_pago_incluye_iva").sum().alias("total_comision_mercado_pago_incluye_iva"),
+    ).with_columns(
+        (pl.sum_horizontal(["total_iva", "total_fuente", "total_ica", "total_comision_mercado_pago_incluye_iva"])).alias("diferencia_final")
+    )
+
+    listados_sin_facturas_pendientes = [
+         factura for factura in df_facturas_reservadas_sumatoria.filter(pl.col("diferencia_final") == 0).select("numero_identificacion_limpio").unique().to_series().to_list()
+         if factura is not None and factura != ''
+    ]
+
+    df_facturas_pendientes = df_sin_facturas_asociadas.filter(
+        pl.col("numero_identificacion_limpio").is_in(listados_sin_facturas_pendientes)
+    )
+
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.filter(
+        ~pl.col("numero_identificacion_limpio").is_in(listados_sin_facturas_pendientes)
+    )
 
     # Filtrar registros con diferencia negativa
     df_cruce_negativos = df_cruce.filter(
@@ -702,11 +729,11 @@ def prueba_cruce_oms_mercado_pago_clase():
         "Facturas canceladas": df_canceladas,
         "Facturas duplicadas": df_facturas_dobles,
         "Facturas negativas": df_negativas,
+        "Facturas pendientes": df_facturas_pendientes,
         "Facturas sin cruzar": df_sin_facturas_asociadas,
     }
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo")
-
 
 
 @medir_rendimiento
@@ -767,6 +794,7 @@ def prueba_cruce_addi_erp():
     }
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi_cruce")
+
 
 if __name__ == "__main__":
     main()

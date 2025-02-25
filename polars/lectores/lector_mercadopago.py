@@ -22,6 +22,7 @@ class LectorMercadoPago(LectorArchivos):
             3:'tipo_registro', # TIPO DE REGISTRO
             4:'descripcion', # DESCRIPCIÓN
             7:'monto_bruto_operacion', # MONTO BRUTO DE LA OPERACIÓN
+            9:'comision_mercado_pago_incluye_iva', #COMISIÓN DE MERCADO PAGO O MERCADO LIBRE (INCLUYE IVA)
             18:'fecha_aprobacion', # FECHA DE APROBACIÓN
             26:'impuestos_desagregados' # IMPUESTOS DESAGREGADOS
 
@@ -87,7 +88,8 @@ class LectorMercadoPago(LectorArchivos):
         )
 
         columnas_decimales = [
-            'monto_bruto_operacion'
+            'monto_bruto_operacion',
+            'comision_mercado_pago_incluye_iva'
         ]
 
         self._dataframe = self._dataframe.with_columns(
