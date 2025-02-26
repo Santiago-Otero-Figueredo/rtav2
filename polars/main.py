@@ -328,19 +328,41 @@ def extraer_valores_impuestos(impuestos: str, tipo_impuesto: str) -> float:
         return 0.0
     return 0.0
 
+def obtener_cedula_asociada(factura: str, d_referencias: dict[str, str]) -> str:
+    """
+    Función que busca en el diccionario de referencias si alguna clave se encuentra contenida
+    en el valor de factura. Si se encuentra, retorna la cédula asociada;
+    en caso contrario retorna una cadena vacía.
+
+    Args:
+        factura (str): Valor de la factura (factura_codigo).
+        d_referencias (dict[str, str]): Diccionario con referencia_sistecredito y cédula_cliente
+
+    Returns:
+        str: Cédula asociada o cadena vacía si no se encuentra coincidencia.
+    """
+    for referencia, cedula in d_referencias.items():
+        if factura in referencia:
+            return cedula
+    return ""
 
 def main():
     """
     Función principal que lee todos los archivos de la carpeta OMS y los une en un solo DataFrame.
     """
     #prueba_cruce_addi_erp()
-    prueba_cruce_oms_mercado_pago_clase()
+    #prueba_cruce_oms_mercado_pago_clase()
 
-    #prueba_sistecredito()
+    prueba_sistecredito()
 
 
 @medir_rendimiento
 def prueba_sistecredito():
+
+    ruta_carpeta_oms = 'insumos/oms/'
+    config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_oms)
+    lector_oms = LectorOMS(config)
+    df_oms = lector_oms.dataframe()
 
     ruta_carpeta_factura = 'insumos/sistecredito/facturas/Facturas_pagadas SISTECREDITO.xlsx'
     config = ConfiguracionLector(ruta_archivo=ruta_carpeta_factura)
@@ -357,6 +379,26 @@ def prueba_sistecredito():
     lector = LectorERP(config)
     df_erp = lector.dataframe()
 
+    df_filtrado_oms = df_oms.filter(
+        (pl.col("forma_pago_1") == "SISTECREDITO") |
+        (pl.col("forma_pago_2") == "SISTECREDITO") |
+        (pl.col("forma_pago_3") == "SISTECREDITO")
+    )
+
+    # Crear la nueva columna 'referencia_sistecredito' que contenga el valor de la columna de referencia correspondiente
+    # dependiendo de cuál de las formas de pago es igual a "SISTECREDITO"
+    df_filtrado_oms = df_filtrado_oms.with_columns(
+        pl.when(pl.col("forma_pago_1") == "SISTECREDITO")
+        .then(pl.col("forma_pago_1_referencia"))
+        .when(pl.col("forma_pago_2") == "SISTECREDITO")
+        .then(pl.col("forma_pago_2_referencia"))
+        .when(pl.col("forma_pago_3") == "SISTECREDITO")
+        .then(pl.col("forma_pago_3_referencia"))
+        .otherwise(None)
+        .alias("referencia_sistecredito")
+    ).select(['cedula_cliente', 'referencia_sistecredito'])
+
+
     # 🔹 Realizar un LEFT JOIN en base a 'almacen' y 'consecutivo_pagare'
     df_cruce_factura_pagare = df_factura.join(
         df_pagare.select(["almacen", "consecutivo_pagare", "documento_identidad"]),
@@ -369,7 +411,76 @@ def prueba_sistecredito():
         left_on="documento_identidad", # Columna en df_cruce_factura_pagare
         right_on="cc_erp", # Columna en df_cruce_erp
         how="left"
+    ).with_columns(
+        pl.lit("").alias("cedula_oms")
     )
+
+    listado_faturas_sin_cruzar = [
+        registro for registro in df_cruce_erp.filter(pl.col('factura_erp').is_null()).select("factura_codigo").unique().to_series().to_list()
+        if registro is not None and len(registro) > 0
+    ]
+
+    print(listado_faturas_sin_cruzar)
+
+    df_facturas_sin_cruce = df_cruce_erp.filter(
+        pl.col("factura_codigo").is_in(listado_faturas_sin_cruzar)
+    )
+
+    # Primero, creamos un diccionario que relacione cada referencia_sistecredito (clave) con la cédula asociada (valor)
+    # Esto asume que df_filtrado_oms contiene ambas columnas: 'referencia_sistecredito' y 'cedula_cliente'
+    diccionario_referencias: dict[str, str] = {
+        fila["referencia_sistecredito"]: fila["cedula_cliente"]
+        for fila in df_filtrado_oms.to_dicts()
+        if fila["referencia_sistecredito"] is not None
+    }
+
+    print(diccionario_referencias)
+    # Aplicamos la función en df_facturas_sin_cruce usando pl.apply para crear la nueva columna 'cedula_oms'
+    df_facturas_sin_cruce = df_facturas_sin_cruce.with_columns(
+        pl.col("factura_codigo")
+        .map_elements(lambda codigo: obtener_cedula_asociada(codigo, diccionario_referencias), return_dtype=pl.Utf8)
+        .alias("cedula_oms")
+    ).filter(pl.col('cedula_oms') != '').select(['factura_codigo', 'cedula_oms'])
+
+
+
+    print(df_facturas_sin_cruce)
+
+    df_cruce_erp = df_cruce_erp.join(
+        df_facturas_sin_cruce.select(["factura_codigo", "cedula_oms"]),
+        left_on="factura_codigo", # Columna en df_cruce_erp
+        right_on="factura_codigo", # Columna en df_facturas_sin_cruce
+        how="left"
+    ).with_columns(
+        pl.col('cedula_oms_right').alias('cedula_oms')
+    )
+
+    # Filtrar los registros que tienen un valor en "cedula_oms" (no nulo y no vacío)
+    df_con_cedula = df_cruce_erp.filter(
+        (pl.col("cedula_oms").is_not_null()) & (pl.col("cedula_oms") != "")
+    )
+
+    # Filtrar los registros que NO tienen valor en "cedula_oms"
+    df_sin_cedula = df_cruce_erp.filter(
+        (pl.col("cedula_oms").is_null()) | (pl.col("cedula_oms") == "")
+    )
+
+    # Realizar el join solo en los registros que tienen "cedula_oms" para actualizar sus valores
+    df_con_cedula_actualizada = df_con_cedula.join(
+        df_erp.select(["cc_erp", "aux_erp", "factura_erp", "valor_fv_erp"]),
+        left_on="cedula_oms",    # Clave en df_con_cedula
+        right_on="cc_erp",        # Clave en df_erp
+        how="left"
+    ).with_columns([
+        # Usamos coalesce para que, en caso de no obtener un valor, se mantenga el original
+        pl.coalesce([pl.col("aux_erp_right"), pl.col("aux_erp")]).alias("aux_erp"),
+        pl.coalesce([pl.col("factura_erp_right"), pl.col("factura_erp")]).alias("factura_erp"),
+        pl.coalesce([pl.col("valor_fv_erp_right"), pl.col("valor_fv_erp")]).alias("valor_fv_erp")
+    ]).drop(["aux_erp_right", "factura_erp_right", "valor_fv_erp_right"])
+
+
+    # Combinar nuevamente los registros actualizados con aquellos que no tenían "cedula_oms"
+    df_cruce_erp = unir_dataframes_cruce(df_con_cedula_actualizada, df_sin_cedula)
 
     # Separar la columna en dos partes usando `.struct`
     df_cruce_erp = df_cruce_erp.with_columns(
@@ -384,12 +495,22 @@ def prueba_sistecredito():
         pl.col("factura_erp_split").struct.field("field_1").alias("numero_factura")
     ]).drop(['factura_erp_split'])
 
-    df_cruce_erp = df_cruce_erp.with_columns(
-        (pl.col("valor_factura") - pl.col("valor_fv_erp")).alias("diferencia")
+
+
+    df_agrupado = df_cruce_erp.group_by(["almacen", "consecutivo_pagare", "aux_erp", "fecha_creacion", "documento_identidad"]).agg(
+       pl.col("valor_fv_erp").sum().alias("total_valor_factura")
     )
 
-    print(df_cruce_erp)
-    print(df_cruce_erp.filter(pl.col("factura_erp").is_not_null()))
+    # Agrupar por las columnas del sort y sumar la columna 'valor'
+    df_cruce_erp = df_cruce_erp.join(
+        df_agrupado.select(["almacen", "consecutivo_pagare", "aux_erp", "fecha_creacion", "documento_identidad", "total_valor_factura"]),
+        on=["almacen", "consecutivo_pagare", "aux_erp", "fecha_creacion", "documento_identidad"],
+        how="left"
+    )
+
+    df_cruce_erp = df_cruce_erp.with_columns(
+        (pl.col("valor_factura") - pl.col("total_valor_factura")).alias("diferencia")
+    )
 
     # Ordenar por "almacen", "aux_erp", "consecutivo_pagare", "documento_identidad"
     df_cruce_erp = df_cruce_erp.select([
@@ -400,21 +521,41 @@ def prueba_sistecredito():
         'valor_factura',
         'valor_neto_pagar',
         'documento_identidad',
+        'cedula_oms',
         'aux_erp',
         'factura_erp',
         'tipo_factura',
         'numero_factura',
         'valor_fv_erp',
+        'total_valor_factura',
         'diferencia',
 
     ])
+    df_cruce_erp = df_cruce_erp.sort(["almacen", "consecutivo_pagare", "aux_erp", "fecha_creacion", "documento_identidad"])
 
-    df_cruce_erp = df_cruce_erp.sort(["almacen", "aux_erp", "consecutivo_pagare", "documento_identidad"])
+
+    # Separar facturas firentes de 0
+    listado_faturas_diferentes_cero = df_cruce_erp.filter(pl.col("diferencia") != 0).select("factura_codigo").unique().to_series().to_list()
+    df_facturas_diferentes_cero = df_cruce_erp.filter(
+        pl.col("factura_codigo").is_in(listado_faturas_diferentes_cero)
+    )
+
+    df_cruce_erp = df_cruce_erp.filter(
+       ~pl.col("factura_codigo").is_in(listado_faturas_diferentes_cero)
+    )
+
+    print(df_cruce_erp)
+    print(df_cruce_erp.filter(pl.col("factura_erp").is_not_null()))
+
+
+
+
 
     dataframes_a_exportar = {
         "Factura": df_factura,
         "Pagare": df_pagare,
         "Cruce factura pagare": df_cruce_factura_pagare,
+        "Facturas devolucion": df_facturas_diferentes_cero,
         "Cruce erp": df_cruce_erp,
     }
 
@@ -458,6 +599,32 @@ def prueba_cruce_oms_mercado_pago_clase():
         right_on="orden_externa_limpio",  # Columna en df_oms
         how="left"  # Mantener todos los registros de df_cruce
     ).rename({"consecutivo": "num_oms"})
+
+
+    # 1.1 Validar que si se ecnuntre información en las formas de pago de la oms
+    df_sin_cruzar = df_cruce.filter(
+        pl.col("num_oms").is_null() |
+        (pl.col("num_oms").cast(pl.Utf8).fill_null("").str.strip_chars().eq(""))
+    )
+    listados_registros_sin_cruzar = [
+        registro for registro in df_sin_cruzar.select("numero_identificacion_limpio").unique().to_series().to_list()
+        if registro is not None
+    ]
+
+    df_cruce = df_cruce.filter(
+        ~pl.col("numero_identificacion_limpio").is_in(listados_registros_sin_cruzar)
+    )
+
+    df_cruce_referencia = df_sin_cruzar.join(
+        df_oms.select(["referencia_mercadopago", "consecutivo"]),  # Seleccionamos solo las columnas necesarias
+        left_on="numero_identificacion_limpio",  # Columna en df_sin_cruzar
+        right_on="referencia_mercadopago",  # Columna en df_oms
+        how="left"  # Mantener todos los registros de df_cruce
+    ).with_columns(
+        pl.col("consecutivo").alias("num_oms")
+    ).drop("consecutivo")
+
+    df_cruce = unir_dataframes_cruce(df_cruce, df_cruce_referencia)
 
     # Mostrar resultados del cruce
     print("\nResultados del cruce:", df_cruce.height)
@@ -729,7 +896,7 @@ def prueba_cruce_oms_mercado_pago_clase():
         "Facturas canceladas": df_canceladas,
         "Facturas duplicadas": df_facturas_dobles,
         "Facturas negativas": df_negativas,
-        "Facturas pendientes": df_facturas_pendientes,
+        "Facturas reservas canceladas": df_facturas_pendientes,
         "Facturas sin cruzar": df_sin_facturas_asociadas,
     }
 

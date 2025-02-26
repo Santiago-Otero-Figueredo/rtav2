@@ -20,6 +20,7 @@ class LectorOMS(LectorArchivos):
             0:'consecutivo', # consecutivo
             2: 'orden_externa', # orden externa
             29:'cliente_nombre', # cliente nombre
+            31:'cedula_cliente', # documento
             43:'estado', # estado
             44:'forma_pago_1', # forma pago 1
             45:'forma_pago_1_referencia', # forma pago 1 referencia
@@ -135,7 +136,17 @@ class LectorOMS(LectorArchivos):
                 .alias(f"{columna}_limpio")
             ])
 
-
+        # Evaluar si alguna de las formas de pago es "MERCADOPAGO" y traer la referencia correspondiente
+        self._dataframe = self._dataframe.with_columns(
+            pl.when(pl.col("forma_pago_1") == "MERCADOPAGO")
+            .then(pl.col("forma_pago_1_referencia"))
+            .when(pl.col("forma_pago_2") == "MERCADOPAGO")
+            .then(pl.col("forma_pago_2_referencia"))
+            .when(pl.col("forma_pago_3") == "MERCADOPAGO")
+            .then(pl.col("forma_pago_3_referencia"))
+            .otherwise(None)  # Si no hay "MERCADOPAGO", deja el valor como nulo
+            .alias("referencia_mercadopago")
+        )
 
 
     def __obtener_archivos_oms(self) -> List[str]:
