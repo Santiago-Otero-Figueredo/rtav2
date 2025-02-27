@@ -87,6 +87,11 @@ class LectorMercadoPago(LectorArchivos):
             ~pl.col("numero_identificacion").str.contains(r"(?i)total")
         )
 
+        print(self._dataframe.filter(
+            pl.col("numero_identificacion").is_not_null()
+        ))
+
+
         columnas_decimales = [
             'monto_bruto_operacion',
             'comision_mercado_pago_incluye_iva'

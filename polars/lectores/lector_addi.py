@@ -69,6 +69,11 @@ class LectorADDI(LectorArchivos):
             'total_ventas'
         ]
 
+        # Primero limpiamos los espacios en blanco de la columna total_ventas
+        self._dataframe = self._dataframe.with_columns([
+            pl.col("total_ventas").str.replace_all(" ", "")
+        ])
+
         self._dataframe = self._dataframe.with_columns(
             [
                 (pl.col(col).cast(pl.Float64).round(2))  # Redondear a 2 decimales
