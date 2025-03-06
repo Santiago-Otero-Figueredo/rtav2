@@ -18,7 +18,9 @@ class LectorADDI(LectorArchivos):
 
         mapeo_indices_nombres_columnas = {
             7:'numero_documento', # Número de documento
-            11:'total_ventas' # Total Ventas (1)
+            11:'total_ventas', # Total Ventas (1)
+            12:'total_cancelaciones' # Total Cancelaciones
+
         }
 
         super().__init__(configuracion=configuracion, mapeo_indices_nombres_columnas=mapeo_indices_nombres_columnas)
@@ -66,7 +68,8 @@ class LectorADDI(LectorArchivos):
     def _limpieza_datos(self) -> None:
 
         columnas_decimales = [
-            'total_ventas'
+            'total_ventas',
+            'total_cancelaciones'
         ]
 
         # Primero limpiamos los espacios en blanco de la columna total_ventas
