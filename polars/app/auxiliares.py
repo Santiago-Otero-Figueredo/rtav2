@@ -1,15 +1,13 @@
-from lectores.lector_oms import LectorOMS
-from lectores.lector_mercadopago import LectorMercadoPago
-from lectores.lector_erp import LectorERP
-from lectores.lector_addi import LectorADDI
-from lectores.lector_mercadolibre import LectorMercadoLibre
+from .lectores.lector_oms import LectorOMS
+from .lectores.lector_mercadopago import LectorMercadoPago
+from .lectores.lector_erp import LectorERP
+from .lectores.lector_addi import LectorADDI
+from .lectores.lector_mercadolibre import LectorMercadoLibre
 
-from lectores.sistecredito.lector_facturas import LectorSisCredFacturas
-from lectores.sistecredito.lector_pagare import LectorSisCredPagare
+from .lectores.sistecredito.lector_facturas import LectorSisCredFacturas
+from .lectores.sistecredito.lector_pagare import LectorSisCredPagare
 
-from cruces.cruce_oms_erp_mp_ml import CruceOmsErpMpMl
-
-from lectores.modelos import ConfiguracionLector
+from .lectores.modelos import ConfiguracionLector
 
 from functools import wraps
 from typing import Callable, Any
@@ -114,7 +112,8 @@ def unir_dataframes_cruce(df_principal: pl.DataFrame, df_adicional: pl.DataFrame
 
 def exportar_multiples_dataframes_excel(
     dataframes: dict[str, pl.DataFrame],
-    nombre_base: str
+    nombre_base: str,
+    carpeta_resultados: str = "resultados"
 ) -> None:
     """
     Exporta múltiples DataFrames a diferentes hojas de un mismo archivo Excel.
@@ -128,7 +127,6 @@ def exportar_multiples_dataframes_excel(
     """
     try:
         # Crear carpeta si no existe
-        carpeta_resultados = "resultados"
         if not os.path.exists(carpeta_resultados):
             os.makedirs(carpeta_resultados)
 
@@ -354,7 +352,7 @@ def obtener_cedula_asociada(factura: str, d_referencias: dict[str, str]) -> str:
     return ""
 
 @medir_rendimiento
-def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp):
+def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, carpeta_resultados):
 
     # ruta_carpeta_oms = 'insumos/oms/'
     # config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_oms)
@@ -553,11 +551,11 @@ def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp):
 
 
 
-    exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo_siscredito")
+    exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo_siscredito", carpeta_resultados)
 
 
 @medir_rendimiento
-def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp):
+def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta_resultados):
     """
     Realiza el cruce de información entre las tablas de OMS, Mercado Pago, Mercado Libre y ERP.
     Este proceso permite conciliar las transacciones y validar la información financiera entre sistemas.
@@ -743,7 +741,7 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp):
         (pl.col("factura_erp").cast(pl.Utf8).fill_null("").str.strip_chars().eq(""))
     )
 
-    if not df_sin_factura.is_empty():
+    if not df_mercadolibre.is_empty():
         df_cruce_mercado_libre = df_sin_factura.join(
             df_mercadolibre.select([
                 "numero_identificacion",
@@ -797,7 +795,8 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp):
         df_cruce = unir_dataframes_cruce(df_cruce, df_cruce_mercado_libre)
 
     else:
-        df_cruce = df_cruce.filter(pl.col("factura_erp").is_null() | (pl.col("factura_erp") == ""))
+        df_sin_facturas_asociadas = df_sin_factura
+        df_cruce = df_cruce.filter(~(pl.col("factura_erp").is_null() & (pl.col("factura_erp") == "")))
 
 
     print("\nResultados del cruce despues mercado libre:", df_cruce.height)
@@ -958,11 +957,11 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp):
         "Facturas sin cruzar": df_sin_facturas_asociadas,
     }
 
-    exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo")
+    exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo", carpeta_resultados)
 
 
 @medir_rendimiento
-def cruce_addi_erp(df_erp, df_addi):
+def cruce_addi_erp(df_erp, df_addi, carpeta_resultados):
     # ruta_archivo_erp = 'insumos/erp/ZOMAC de ADDD.xls'  # Ajusta esta ruta según tu estructura
     # config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
     # lector = LectorERP(config)
@@ -1092,6 +1091,6 @@ def cruce_addi_erp(df_erp, df_addi):
 
     }
 
-    exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi_cruce")
+    exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi_cruce", carpeta_resultados)
 
 

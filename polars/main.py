@@ -1,19 +1,27 @@
 
-from auxiliares import cruce_sistecredito, cruce_oms_mercado_pago_clase, cruce_addi_erp
-from lectores.lector_oms import LectorOMS
-from lectores.lector_mercadopago import LectorMercadoPago
-from lectores.lector_erp import LectorERP
-from lectores.lector_addi import LectorADDI
-from lectores.lector_mercadolibre import LectorMercadoLibre
+from app.auxiliares import cruce_sistecredito, cruce_oms_mercado_pago_clase, cruce_addi_erp
+from app.lectores.lector_oms import LectorOMS
+from app.lectores.lector_mercadopago import LectorMercadoPago
+from app.lectores.lector_erp import LectorERP
+from app.lectores.lector_addi import LectorADDI
+from app.lectores.lector_mercadolibre import LectorMercadoLibre
 
-from lectores.sistecredito.lector_facturas import LectorSisCredFacturas
-from lectores.sistecredito.lector_pagare import LectorSisCredPagare
+from app.lectores.sistecredito.lector_facturas import LectorSisCredFacturas
+from app.lectores.sistecredito.lector_pagare import LectorSisCredPagare
 
-from lectores.modelos import ConfiguracionLector
+from app.lectores.modelos import ConfiguracionLector
 
 from tkinter import filedialog, messagebox, ttk
 
-from settings import RUTA_RAIZ, RUTA_RESULTADOS
+from app.settings import (RUTA_RAIZ,
+                            RUTA_INSUMOS_ADDI,
+                            RUTA_INSUMOS_ERP,
+                            RUTA_INSUMOS_MP,
+                            RUTA_INSUMOS_ML,
+                            RUTA_INSUMOS_OMS,
+                            RUTA_INSUMOS_FACTURA_SISTECREDITO,
+                            RUTA_INSUMOS_PAGARE_SISTECREDITO,
+                            RUTA_RESULTADOS)
 
 
 from datetime import datetime
@@ -21,7 +29,7 @@ from datetime import datetime
 import customtkinter
 import pandas as pd
 import tkinter as tk
-import shutil
+import polars as pl
 import os
 
 #ejecutar_procesamiento()
@@ -75,13 +83,22 @@ ruta_resultados = ""
 
 def seleccionar_archivo_erp(label):
 
-    archivo = filedialog.askopenfilename(title="Seleccionar archivo ERP", filetypes=[("Excel", "*.xls")])
+    archivo = filedialog.askopenfilename(
+        title="Seleccionar archivo ERP",
+        filetypes=[("Excel", "*.xls")],
+        initialdir=RUTA_INSUMOS_ERP
+    )
 
     try:
+        # Validar que se haya seleccionado un archivo
+        if not archivo:
+            raise ValueError("No se ha seleccionado ningún archivo para el ERP.")
+
         global lector_erp, ruta_ERP
         config = ConfiguracionLector(ruta_archivo=archivo)
         lector_erp = LectorERP(config)
         ruta_ERP = archivo
+
 
         # Actualizar la etiqueta con la ruta de la carpeta seleccionada
         label.configure(text=archivo)
@@ -93,9 +110,16 @@ def seleccionar_archivo_erp(label):
 
 def seleccionar_archivo_mercadopago(label):
 
-    archivo = filedialog.askopenfilename(title="Seleccionar archivo mercadopago", filetypes=[("Excel", "*.xlsx")])
+    archivo = filedialog.askopenfilename(
+        title="Seleccionar archivo mercadopago",
+        filetypes=[("Excel", "*.xlsx")],
+        initialdir=RUTA_INSUMOS_MP
+    )
 
     try:
+        # Validar que se haya seleccionado un archivo
+        if not archivo:
+            raise ValueError("No se ha seleccionado ningún archivo de Mercadopago.")
         global lector_mercadopago, ruta_MP
         config = ConfiguracionLector(ruta_archivo=archivo)
         lector_mercadopago = LectorMercadoPago(config)
@@ -124,7 +148,10 @@ def seleccionar_archivo_mercadolibre(label):
             None
     """
     # Abrir diálogo para seleccionar carpeta únicamente
-    ruta_carpeta_ml = filedialog.askdirectory(title="Seleccionar carpeta que contiene los archivos de Mercadolibre")
+    ruta_carpeta_ml = filedialog.askdirectory(
+        title="Seleccionar carpeta que contiene los archivos de Mercadolibre",
+        initialdir=RUTA_INSUMOS_ML
+    )
 
     try:
         # Validar que se haya seleccionado una carpeta
@@ -160,8 +187,11 @@ def seleccionar_carpeta_oms(label):
             None
     """
     # Abrir diálogo para seleccionar carpeta únicamente
-    ruta_carpeta_oms = filedialog.askdirectory(title="Seleccionar carpeta que contiene los archivos OMS")
-    print('>>>>>>>>>>>>>>>>>>>> ', ruta_carpeta_oms)
+    ruta_carpeta_oms = filedialog.askdirectory(
+        title="Seleccionar carpeta que contiene los archivos OMS",
+        initialdir=RUTA_INSUMOS_OMS
+    )
+
     try:
         # Validar que se haya seleccionado una carpeta
         if not ruta_carpeta_oms:
@@ -196,7 +226,10 @@ def seleccionar_carpeta_addi(label):
             None
     """
     # Abrir diálogo para seleccionar carpeta únicamente
-    ruta_carpeta_addi = filedialog.askdirectory(title="Seleccionar carpeta que contiene los archivos de ADDI")
+    ruta_carpeta_addi = filedialog.askdirectory(
+        title="Seleccionar carpeta que contiene los archivos de ADDI",
+        initialdir=RUTA_INSUMOS_ADDI
+    )
 
     try:
         # Validar que se haya seleccionado una carpeta
@@ -219,9 +252,17 @@ def seleccionar_carpeta_addi(label):
 
 def seleccionar_archivo_factura_sistecredito(label):
     # Abrir diálogo para seleccionar carpeta únicamente
-    archivo = filedialog.askopenfilename(title="Seleccionar archivo factura de sistecredito", filetypes=[("Excel", "*.xlsx")])
+    archivo = filedialog.askopenfilename(
+        title="Seleccionar archivo factura de sistecredito",
+        filetypes=[("Excel", "*.xlsx")],
+        initialdir=RUTA_INSUMOS_FACTURA_SISTECREDITO
+    )
 
     try:
+        # Validar que se haya seleccionado un archivo
+        if not archivo:
+            raise ValueError("No se ha seleccionado ningún archivo de facturas sistecredito.")
+
         # Validar que se haya seleccionado una carpeta
         global lector_facturas_sistecredito, ruta_factura_SC
         config = ConfiguracionLector(ruta_archivo=archivo)
@@ -237,73 +278,80 @@ def seleccionar_archivo_factura_sistecredito(label):
 
 def seleccionar_archivo_pagare_sistecredito(label):
     # Abrir diálogo para seleccionar carpeta únicamente
-    archivo = filedialog.askopenfilename(title="Seleccionar archivo pagare de sistecredito", filetypes=[("Excel", "*.xlsx")])
+    archivo = filedialog.askopenfilename(
+        title="Seleccionar archivo pagare de sistecredito",
+        filetypes=[("Excel", "*.xlsx")],
+        initialdir=RUTA_INSUMOS_PAGARE_SISTECREDITO
+    )
 
-    try:
-        # Validar que se haya seleccionado una carpeta
-        global lector_pagares_sistecredito, ruta_pagare_SC
+    #try:
+    # Validar que se haya seleccionado un archivo
+    if not archivo:
+        raise ValueError("No se ha seleccionado ningún archivo de pagares sistecredito.")
 
-        # Inicializar la configuración utilizando la ruta de la carpeta seleccionada
-        config = ConfiguracionLector(ruta_archivo=archivo)
-        lector_pagares_sistecredito = LectorSisCredPagare(config)
-        ruta_pagare_SC = archivo
-        # Actualizar la etiqueta con la ruta de la carpeta seleccionada
-        label.configure(text=archivo)
-        check_files()
-    except ValueError as error:
-        messagebox.showerror('Error', error)
-    except Exception as exc:
-        messagebox.showerror('Error', exc)
+    # Validar que se haya seleccionado una carpeta
+    global lector_pagares_sistecredito, ruta_pagare_SC
+
+    # Inicializar la configuración utilizando la ruta de la carpeta seleccionada
+    config = ConfiguracionLector(ruta_archivo=archivo)
+    lector_pagares_sistecredito = LectorSisCredPagare(config)
+    ruta_pagare_SC = archivo
+    # Actualizar la etiqueta con la ruta de la carpeta seleccionada
+    label.configure(text=archivo)
+    check_files()
+    # except ValueError as error:
+    #     messagebox.showerror('Error', error)
+    # except Exception as exc:
+    #     messagebox.showerror('Error', exc)
 
 def check_files():
     global lector_erp, lector_mercadopago, lector_mercadolibre, lector_oms, lector_addi, lector_pagares_sistecredito, lector_facturas_sistecredito
-    try:
-        if lector_erp and lector_mercadopago and  lector_oms and lector_addi and lector_pagares_sistecredito and lector_facturas_sistecredito:
-            df_erp = lector_erp.dataframe()
-            df_mp = lector_mercadopago.dataframe()
-            df_oms = lector_oms.dataframe()
-            df_addi = lector_addi.dataframe()
-            df_pagare = lector_pagares_sistecredito.dataframe()
-            df_factura = lector_facturas_sistecredito.dataframe()
+    #try:
+    if lector_erp and lector_mercadopago and  lector_oms and lector_addi and lector_pagares_sistecredito and lector_facturas_sistecredito:
+        df_erp = lector_erp.dataframe()
+        df_mp = lector_mercadopago.dataframe()
+        df_oms = lector_oms.dataframe()
+        df_addi = lector_addi.dataframe()
+        df_pagare = lector_pagares_sistecredito.dataframe()
+        df_factura = lector_facturas_sistecredito.dataframe()
 
-            if df_erp.is_empty() or df_mp.is_empty() or df_oms.is_empty() or df_addi.is_empty() or df_pagare.is_empty() or df_factura:
-                boton_cruce_todos_los_archivo.configure(state='disabled')
-            else:
-                boton_cruce_todos_los_archivo.configure(state='normal')
+        if df_erp.is_empty() or df_mp.is_empty() or df_oms.is_empty() or df_addi.is_empty() or df_pagare.is_empty() or df_factura.is_empty():
+            boton_cruce_todos_los_archivo.configure(state='disabled')
+        else:
+            boton_cruce_todos_los_archivo.configure(state='normal')
 
-        if lector_erp and lector_mercadopago and  lector_oms:
-            df_erp = lector_erp.dataframe()
-            df_mp = lector_mercadopago.dataframe()
-            df_oms = lector_oms.dataframe()
+    if lector_erp and lector_mercadopago and  lector_oms:
+        df_erp = lector_erp.dataframe()
+        df_mp = lector_mercadopago.dataframe()
+        df_oms = lector_oms.dataframe()
 
-            if df_erp.is_empty() or df_mp.is_empty() or df_oms.is_empty():
-                boton_cruce_principal.configure(state='disabled')
-            else:
-                boton_cruce_principal.configure(state='normal')
+        if df_erp.is_empty() or df_mp.is_empty() or df_oms.is_empty():
+            boton_cruce_principal.configure(state='disabled')
+        else:
+            boton_cruce_principal.configure(state='normal')
 
-        if lector_erp and lector_oms and lector_pagares_sistecredito and lector_facturas_sistecredito:
-            df_erp = lector_erp.dataframe()
-            df_oms = lector_oms.dataframe()
-            df_pagare = lector_pagares_sistecredito.dataframe()
-            df_factura = lector_facturas_sistecredito.dataframe()
+    if lector_erp and lector_oms and lector_pagares_sistecredito and lector_facturas_sistecredito:
+        df_erp = lector_erp.dataframe()
+        df_oms = lector_oms.dataframe()
+        df_pagare = lector_pagares_sistecredito.dataframe()
+        df_factura = lector_facturas_sistecredito.dataframe()
 
-            if df_erp.is_empty() or df_oms.is_empty() or df_pagare.is_empty() or df_factura.is_empty():
-                boton_cruce_sistecredito.configure(state='disabled')
-            else:
-                boton_cruce_sistecredito.configure(state='normal')
+        if df_erp.is_empty() or df_oms.is_empty() or df_pagare.is_empty() or df_factura.is_empty():
+            boton_cruce_sistecredito.configure(state='disabled')
+        else:
+            boton_cruce_sistecredito.configure(state='normal')
 
-        if lector_erp and lector_addi:
-            df_addi = lector_addi.dataframe()
-            df_erp = lector_erp.dataframe()
+    if lector_erp and lector_addi:
+        df_addi = lector_addi.dataframe()
+        df_erp = lector_erp.dataframe()
 
-            if df_addi.is_empty() or df_erp.is_empty():
-                boton_cruce_addi.configure(state='disabled')
-            else:
-                boton_cruce_addi.configure(state='normal')
+        if df_addi.is_empty() or df_erp.is_empty():
+            boton_cruce_addi.configure(state='disabled')
+        else:
+            boton_cruce_addi.configure(state='normal')
 
-    except Exception as e:
-        messagebox.showerror('Error', e)
-
+    # except Exception as e:
+    #     messagebox.showerror('Error', e)
 
 def cruzar_todos_los_archivos():
     try:
@@ -316,9 +364,9 @@ def cruzar_todos_los_archivos():
         df_pagare = lector_pagares_sistecredito.dataframe()
         df_factura = lector_facturas_sistecredito.dataframe()
 
-        cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp)
-        cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp)
-        cruce_addi_erp(df_erp, df_addi)
+        cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, RUTA_RESULTADOS)
+        cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, RUTA_RESULTADOS)
+        cruce_addi_erp(df_erp, df_addi, RUTA_RESULTADOS)
 
         messagebox.showinfo('Info', "Proceso finalizado con éxito. Se reiniciara la aplicación")
         reiniciar()
@@ -326,15 +374,14 @@ def cruzar_todos_los_archivos():
     except Exception as e:
         messagebox.showerror('Error', e)
 
-
 def cruzar_archivos_cruce_principal():
     try:
 
         df_erp = lector_erp.dataframe()
         df_mp = lector_mercadopago.dataframe()
-        df_mercadolibre = lector_mercadolibre.dataframe()
+        df_mercadolibre = lector_mercadolibre.dataframe() if lector_mercadolibre else pl.DataFrame()
         df_oms = lector_oms.dataframe()
-        cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp)
+        cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, RUTA_RESULTADOS)
 
         messagebox.showinfo('Info', "Proceso finalizado con éxito. Se reiniciara la aplicación")
         reiniciar()
@@ -351,7 +398,7 @@ def cruzar_archivos_cruce_sistecredito():
         df_pagare = lector_pagares_sistecredito.dataframe()
         df_factura = lector_facturas_sistecredito.dataframe()
 
-        cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp)
+        cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, RUTA_RESULTADOS)
 
         messagebox.showinfo('Info', "Proceso finalizado con éxito. Se reiniciara la aplicación")
         reiniciar()
@@ -366,7 +413,7 @@ def cruzar_archivos_cruce_addi():
         df_erp = lector_erp.dataframe()
         df_addi = lector_addi.dataframe()
 
-        cruce_addi_erp(df_erp, df_addi)
+        cruce_addi_erp(df_erp, df_addi, RUTA_RESULTADOS)
 
         messagebox.showinfo('Info', "Proceso finalizado con éxito. Se reiniciara la aplicación")
         reiniciar()
@@ -398,6 +445,13 @@ def abrir_carpeta_resultados(label):
 
     archivo = filedialog.askdirectory(title="Seleccionar nueva carpeta")
     label.configure(text=archivo)
+
+
+def abrir_explorador(ruta):
+    if os.path.exists(ruta):  # Verifica que la ruta exista
+        os.startfile(ruta)  # Abre la carpeta en el Explorador de Windows
+    else:
+        print("La ruta no existe:", ruta)  # Mensaje en consola si la ruta es inválida
 
 
 def reiniciar():
@@ -462,11 +516,25 @@ def añadir_boton(frame, texto: str, fila: int, columna: int, label, funcion):
     return boton_archivo
 
 
-def anadir_frame_archivo(frame_contenedor, texto: str, funcion_ejectura, fila):
+def anadir_frame_archivo(frame_contenedor, texto: str, funcion_ejectura, fila: int, ruta: str):
     frame = customtkinter.CTkFrame(master=frame_contenedor, fg_color="transparent")
     ruta_label = añadir_labels(frame, fila, 2)
     btn_ERP = añadir_boton(frame, texto, fila, 1, ruta_label, funcion_ejectura)
+
+    # Botón para abrir el Explorador en la ruta especificada
+    btn_explorador = customtkinter.CTkButton(
+        master=frame,
+        text="📂",  # Icono de carpeta para que sea más visual
+        width=40,
+        fg_color="#FFF9C4",  # Amarillo muy claro
+        hover_color="#FFF176",  # Amarillo un poco más intenso al pasar el mouse
+        text_color="black",
+        command=lambda: abrir_explorador(ruta)  # Se pasa la ruta a la función
+    )
+
+    btn_explorador.grid(row=fila, column=3, padx=5, pady=5)  # Botón de abrir carpeta
     frame.grid(row=fila, column=1, sticky='we')
+
 
 
 def callback(url):
@@ -479,13 +547,13 @@ boton.grid(row=0, column=0, padx=10, pady=10, sticky='w')
 # Crear botones para seleccionar los archivos ERP
 frame_archivos = customtkinter.CTkFrame(master=root, height=100, width=1000, fg_color="#424242")
 
-anadir_frame_archivo(frame_archivos, 'Seleccionar archivo ERP', seleccionar_archivo_erp, fila=0)
-anadir_frame_archivo(frame_archivos, 'Seleccionar archivo Mercadopago', seleccionar_archivo_mercadopago, fila=1)
-anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta Mercadolibre', seleccionar_archivo_mercadolibre, fila=2)
-anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta OMS', seleccionar_carpeta_oms, fila=3)
-anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta ADDI', seleccionar_carpeta_addi, fila=4)
-anadir_frame_archivo(frame_archivos, 'Seleccionar factura sistecredito', seleccionar_archivo_factura_sistecredito, fila=5)
-anadir_frame_archivo(frame_archivos, 'Seleccionar pagare sistecredito', seleccionar_archivo_pagare_sistecredito, fila=6)
+anadir_frame_archivo(frame_archivos, 'Seleccionar archivo ERP', seleccionar_archivo_erp, fila=0, ruta=RUTA_INSUMOS_ERP)
+anadir_frame_archivo(frame_archivos, 'Seleccionar archivo Mercadopago', seleccionar_archivo_mercadopago, fila=1, ruta=RUTA_INSUMOS_MP)
+anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta Mercadolibre', seleccionar_archivo_mercadolibre, fila=2, ruta=RUTA_INSUMOS_ML)
+anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta OMS', seleccionar_carpeta_oms, fila=3, ruta=RUTA_INSUMOS_OMS)
+anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta ADDI', seleccionar_carpeta_addi, fila=4, ruta=RUTA_INSUMOS_ADDI)
+anadir_frame_archivo(frame_archivos, 'Seleccionar factura sistecredito', seleccionar_archivo_factura_sistecredito, fila=5, ruta=RUTA_INSUMOS_FACTURA_SISTECREDITO)
+anadir_frame_archivo(frame_archivos, 'Seleccionar pagare sistecredito', seleccionar_archivo_pagare_sistecredito, fila=6, ruta=RUTA_INSUMOS_PAGARE_SISTECREDITO)
 
 frame_archivos.grid(row=3, column=0, padx=10, pady=10, sticky='we')
 
@@ -495,7 +563,7 @@ boton_cruce_todos_los_archivo = customtkinter.CTkButton(frame_cruce, text='Cruza
 boton_cruce_todos_los_archivo.configure(height=30, font=customtkinter.CTkFont(size=12, weight="bold", family='Arial'))
 boton_cruce_todos_los_archivo.grid(row=0, column=0, padx=10, pady=10)
 
-boton_cruce_principal = customtkinter.CTkButton(frame_cruce, text='Realizar cruce principal', command=cruzar_archivos_cruce_principal, state='disabled', cursor="hand2")
+boton_cruce_principal = customtkinter.CTkButton(frame_cruce, text='Realizar cruce OMS', command=cruzar_archivos_cruce_principal, state='disabled', cursor="hand2")
 boton_cruce_principal.configure(height=30, font=customtkinter.CTkFont(size=12, weight="bold", family='Arial'))
 boton_cruce_principal.grid(row=0, column=1, padx=10, pady=10)
 
@@ -506,6 +574,19 @@ boton_cruce_addi.grid(row=0, column=2, padx=10, pady=10)
 boton_cruce_sistecredito = customtkinter.CTkButton(frame_cruce, text='Realizar cruce sistecredito', command=cruzar_archivos_cruce_sistecredito, state='disabled', cursor="hand2")
 boton_cruce_sistecredito.configure(height=30, font=customtkinter.CTkFont(size=12, weight="bold", family='Arial'))
 boton_cruce_sistecredito.grid(row=0, column=3, padx=10, pady=10)
+
+boton_carpeta_resultados = customtkinter.CTkButton(
+    frame_cruce,
+    text='Resultados 📂',
+    command=lambda: abrir_explorador(RUTA_RESULTADOS),
+    cursor="hand2",
+    fg_color="#DFFFD6",
+    hover_color="#B2FF99",  # Verde más intenso al pasar el mouse
+    text_color="black"
+)
+
+boton_carpeta_resultados.configure(height=30, font=customtkinter.CTkFont(size=12, weight="bold", family='Arial'))
+boton_carpeta_resultados.grid(row=0, column=5, padx=10, pady=10, sticky="e")
 
 frame_cruce.grid(row=4, column=0, padx=10, pady=10, columnspan=2, sticky='we')
 
