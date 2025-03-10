@@ -23,13 +23,24 @@ import json
 
 def medir_rendimiento(funcion: Callable) -> Callable:
     """
-    Decorador que mide el tiempo de ejecución y uso de memoria de una función.
+    Decorador que mide el rendimiento de una función, calculando el tiempo de ejecución
+    y el uso de memoria RAM.
+
+    Características:
+    - Captura el tiempo inicial y final de ejecución
+    - Mide el uso de memoria RAM antes y después de la ejecución
+    - Imprime estadísticas de rendimiento
 
     Args:
         funcion (Callable): Función a decorar
 
     Returns:
-        Callable: Función decorada con medición de rendimiento
+        Callable: Función decorada que incluye medición de rendimiento
+
+    Ejemplo:
+        @medir_rendimiento
+        def mi_funcion():
+            # código de la función
     """
     @wraps(funcion)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -53,14 +64,23 @@ def medir_rendimiento(funcion: Callable) -> Callable:
 
 def exportar_resultados_excel(df: pl.DataFrame, nombre_base: str) -> None:
     """
-    Exporta un DataFrame a Excel con timestamp en el nombre.
+    Exporta un DataFrame de Polars a un archivo Excel con nombre timestampeado.
+
+    Proceso:
+    1. Crea una carpeta 'resultados' si no existe
+    2. Genera un nombre de archivo único con timestamp
+    3. Exporta el DataFrame a Excel
 
     Args:
         df (pl.DataFrame): DataFrame a exportar
-        nombre_base (str): Nombre base del archivo
+        nombre_base (str): Nombre base para el archivo (se añadirá timestamp)
 
     Returns:
-        None: Guarda el archivo en disco
+        None: El archivo se guarda en disco en la carpeta 'resultados'
+
+    Ejemplo:
+        exportar_resultados_excel(df, "reporte_ventas")
+        # Crea: resultados/reporte_ventas_20231201_143022.xlsx
     """
     # Crear carpeta si no existe
     carpeta_resultados = "resultados"
@@ -77,14 +97,23 @@ def exportar_resultados_excel(df: pl.DataFrame, nombre_base: str) -> None:
 
 def unir_dataframes_cruce(df_principal: pl.DataFrame, df_adicional: pl.DataFrame) -> pl.DataFrame:
     """
-    Une dos DataFrames verticalmente asegurando compatibilidad de columnas.
+    Une verticalmente dos DataFrames asegurando compatibilidad de columnas y reportando estadísticas.
+
+    Proceso:
+    1. Valida que los DataFrames no estén vacíos
+    2. Muestra estadísticas pre-unión
+    3. Realiza la concatenación vertical
+    4. Muestra estadísticas post-unión
 
     Args:
-        df_principal (pl.DataFrame): DataFrame principal con los cruces originales
-        df_adicional (pl.DataFrame): DataFrame con cruces adicionales por cédula
+        df_principal (pl.DataFrame): DataFrame base para la unión
+        df_adicional (pl.DataFrame): DataFrame a añadir
 
     Returns:
-        pl.DataFrame: DataFrame unificado con todos los cruces
+        pl.DataFrame: DataFrame unificado con todos los registros
+
+    Raises:
+        Exception: Si hay error durante la unión
     """
     try:
         # Verificar que ambos DataFrames no estén vacíos
@@ -116,14 +145,25 @@ def exportar_multiples_dataframes_excel(
     carpeta_resultados: str = "resultados"
 ) -> None:
     """
-    Exporta múltiples DataFrames a diferentes hojas de un mismo archivo Excel.
+    Exporta múltiples DataFrames a diferentes hojas de un archivo Excel.
+
+    Proceso:
+    1. Crea carpeta de resultados si no existe
+    2. Genera nombre de archivo con timestamp
+    3. Crea archivo Excel con múltiples hojas
+    4. Convierte cada DataFrame de Polars a Pandas
+    5. Exporta cada DataFrame a su hoja correspondiente
 
     Args:
-        dataframes (dict[str, pl.DataFrame]): Diccionario con nombre_hoja:DataFrame
+        dataframes (dict[str, pl.DataFrame]): Diccionario de {nombre_hoja: DataFrame}
         nombre_base (str): Nombre base para el archivo Excel
+        carpeta_resultados (str): Ruta de la carpeta de salida
 
     Returns:
         None: Guarda el archivo en disco
+
+    Raises:
+        Exception: Si hay error durante la exportación
     """
     try:
         # Crear carpeta si no existe
@@ -156,25 +196,41 @@ def exportar_multiples_dataframes_excel(
 
 def obtener_facturas_canceladas(df: pl.DataFrame) -> pl.DataFrame:
     """
-    Identifica las facturas que han sido canceladas basándose en la suma de montos
-    y la presencia de registros tipo 'refund'.
+    Identifica y filtra las facturas canceladas basándose en la suma de montos, la comisión y
+    la presencia de refunds.
+
+    Proceso:
+      1. Para cada factura (agrupada por 'factura_erp'):
+         - Suma el valor de 'monto_bruto_operacion' y se obtiene el total en 'suma_montos'
+         - Suma el valor de 'comision_mercado_pago_incluye_iva' y se obtiene el total en 'suma_comision'
+         - Verifica si en 'descripcion' aparece la palabra 'refund' (en minúsculas).
+      2. Se marca la factura como cancelada (columna 'cancelado' = 1) si se cumple alguna de las siguientes condiciones:
+         a) El valor absoluto de 'suma_montos' es menor a 2.5 y existe refund; o
+         b) El valor absoluto de la suma de 'suma_montos' y 'suma_comision' es menor a 2.5.
+      3. Se une el resultado con el DataFrame original filtrando solo las facturas canceladas.
 
     Args:
-        df (pl.DataFrame): DataFrame con las columnas factura_erp, monto_bruto_operacion y descripcion
+        df (pl.DataFrame): DataFrame que contiene las columnas 'factura_erp',
+                           'monto_bruto_operacion', 'comision_mercado_pago_incluye_iva' y 'descripcion'.
 
     Returns:
-        pl.DataFrame: DataFrame con la marca de cancelación por factura
+        pl.DataFrame: DataFrame con solo las facturas canceladas.
     """
-    # Realizar el análisis por factura
     df_cancelaciones = df.group_by("factura_erp").agg([
         # Suma total de montos
         pl.col("monto_bruto_operacion").sum().alias("suma_montos"),
-        # Verificar si existe algún refund
+        # Suma total de comisión
+        pl.col("comision_mercado_pago_incluye_iva").sum().alias("suma_comision"),
+        # Verificar si existe algún refund en la descripción
         pl.col("descripcion").str.to_lowercase().eq("refund").any().alias("tiene_refund")
     ]).with_columns([
-        # Marcar como cancelado si suma es 0 y tiene refund
+        # Marcar como cancelado si se cumple alguna de las condiciones:
+        # a) absolute(suma_montos) < 2.5 y tiene refund, O
+        # b) absolute(suma_montos + suma_comision) < 2.5
         pl.when(
-            (pl.col("suma_montos").abs() < 1) & pl.col("tiene_refund")
+            (
+                (pl.col("suma_montos").abs() < 2.5) & pl.col("tiene_refund")
+            ) | ((pl.col("suma_montos") + pl.col("suma_comision")).abs() < 2.5)
         ).then(
             pl.lit(1)
         ).otherwise(
@@ -182,29 +238,33 @@ def obtener_facturas_canceladas(df: pl.DataFrame) -> pl.DataFrame:
         ).alias("cancelado")
     ])
 
-    # Unir el resultado con el DataFrame original
+    # Unir el resultado con el DataFrame original y filtrar solo las facturas canceladas
     df_resultado = df.join(
         df_cancelaciones.select(["factura_erp", "cancelado"]),
         on="factura_erp",
         how="left"
     ).filter(
         pl.col("cancelado") == 1
-    ).drop(
-        'cancelado'
-    )
+    ).drop("cancelado")
 
     return df_resultado
 
 def obtener_facturas_devueltas(df: pl.DataFrame) -> pl.DataFrame:
     """
-    Identifica las facturas que tienen devoluciones basándose en la suma negativa
-    de montos y la presencia de registros tipo 'refund'.
+    Identifica y filtra las facturas con devoluciones basándose en montos negativos
+    y presencia de refunds.
+
+    Proceso:
+    1. Agrupa por factura_erp
+    2. Suma montos y verifica refunds
+    3. Marca facturas con suma negativa y refund como devueltas
+    4. Filtra solo facturas devueltas
 
     Args:
-        df (pl.DataFrame): DataFrame con las columnas factura_erp, monto_bruto_operacion y descripcion
+        df (pl.DataFrame): DataFrame con columnas factura_erp, monto_bruto_operacion y descripcion
 
     Returns:
-        pl.DataFrame: DataFrame con las facturas que tienen devoluciones
+        pl.DataFrame: DataFrame con solo las facturas devueltas
     """
     # Realizar el análisis por factura
     df_devoluciones = df.group_by("factura_erp").agg([
@@ -241,13 +301,18 @@ def son_valores_similares(valor1: float, valores: list[float], margen: float = 0
     """
     Compara un valor con una lista de valores permitiendo un margen de error.
 
+    Proceso:
+    - Itera sobre la lista de valores
+    - Compara cada valor con el valor1 usando el margen de error
+    - Retorna True si encuentra alguna coincidencia dentro del margen
+
     Args:
         valor1 (float): Valor a comparar
         valores (list[float]): Lista de valores para comparar
-        margen (float): Margen de error permitido (por defecto 0.01)
+        margen (float): Margen de error permitido (default 0.01)
 
     Returns:
-        bool: True si encuentra algún valor dentro del margen permitido
+        bool: True si encuentra algún valor similar dentro del margen
     """
     return any(abs(valor1 - valor2) <= margen for valor2 in valores)
 
@@ -607,26 +672,6 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta
     Raises:
         Exception: Cualquier error durante el proceso es capturado y logged
     """
-    # ruta_carpeta_oms = 'insumos/oms/'
-    # config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_oms)
-    # lector_oms = LectorOMS(config)
-    # df_oms = lector_oms.dataframe()
-
-    # ruta_carpeta_mercadolibre = 'insumos/mercadolibre/'
-    # config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_mercadolibre)
-    # lector_mercadolibre = LectorMercadoLibre(config)
-    # df_mercadolibre = lector_mercadolibre.dataframe()
-
-    # ruta_archivo_mercdaopago = 'insumos/mercadopago/MERCADOPAGO 172.xlsx'  # Ajusta esta ruta según tu estructura
-    # config = ConfiguracionLector(ruta_archivo=ruta_archivo_mercdaopago)
-    # lector_mp = LectorMercadoPago(config)
-    # df_mp = lector_mp.dataframe()
-
-    # ruta_archivo_erp = 'insumos/erp/ERP.xls'  # Ajusta esta ruta según tu estructura
-    # config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
-    # lector = LectorERP(config)
-    # df_erp = lector.dataframe()
-
     df_cruce = df_mp.clone()
 
     print("\nCantidad elementos antes cruce oms:", df_cruce.height)
@@ -643,7 +688,7 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta
 
     print(df_cruce.select(["numero_identificacion_limpio"]))
 
-    # 1.1 Validar que si se ecnuntre información en las formas de pago de la oms
+    # 1.1 Validar que si se ecuentre información en las formas de pago de la oms
     df_sin_cruzar = df_cruce.filter(
         pl.col("num_oms").is_null() |
         (pl.col("num_oms").cast(pl.Utf8).fill_null("").str.strip_chars().eq(""))
@@ -804,7 +849,7 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta
 
     df_cruce = df_cruce.with_columns([
         pl.when(
-             (pl.col("valor_fv_erp") - pl.col("monto_bruto_operacion")).abs() < 0.02
+             (pl.col("valor_fv_erp") - pl.col("monto_bruto_operacion")).abs() < 2.5
         ).then(
             pl.lit(0)  # Si la diferencia absoluta es menor a 0,02, asignar 0
         ).otherwise(
@@ -906,8 +951,6 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta
 
     df_cruce_cedulas_facturas = unir_dataframes_cruce(df_cruce, df_cruce_cedulas)
 
-
-
     df_canceladas = obtener_facturas_canceladas(df_cruce_cedulas_facturas)
     listados_facturas_canceladas = df_canceladas.select("factura_erp").unique().to_series().to_list()
     df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
@@ -921,6 +964,102 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta
     )
 
     df_negativas = df_cruce_cedulas_facturas.filter(pl.col("diferencia_valores") < 0)
+
+    # Agrupar el DataFrame df_negativas por la columna cc_erp y calcular la diferencia
+    # entre la suma de valor_fv_erp y la suma de monto_bruto_operacion para cada grupo.
+    df_negativas_agrupadas = df_negativas.group_by("cc_erp").agg([
+        pl.col("valor_fv_erp").sum().alias("suma_valor_fv_erp"),
+        pl.col("monto_bruto_operacion").cast(pl.Float64).drop_nulls().mean().alias("promedio_monto_bruto_operacion")
+    ]).with_columns([
+        # Se resta la suma de monto_bruto_operacion de la suma de valor_fv_erp,
+        # asignando el resultado a la columna diferencia_negativa
+        (pl.col("suma_valor_fv_erp") - pl.col("promedio_monto_bruto_operacion")).alias("diferencia_valores")
+    ]).with_columns([
+        pl.col("diferencia_valores").cast(pl.Decimal(20, 2)).alias("diferencia_valores")
+    ])
+
+    # Se realiza un join entre df_negativas y df_negativas_agrupadas utilizando la columna "valor_fv_erp" como llave.
+    # Solo se actualizarán los valores de la columna "diferencia_valores" en df_negativas para aquellos registros
+    # que tengan correspondencia en df_negativas_agrupadas, reemplazando el valor original por el calculado en el agrupamiento.
+
+    df_negativas = df_negativas.join(
+        # Seleccionar únicamente las columnas necesarias del DataFrame agrupado
+        df_negativas_agrupadas.select(["cc_erp", "diferencia_valores"]),
+        left_on="cc_erp",   # Llave de unión en df_negativas
+        right_on="cc_erp",  # Llave de unión en df_negativas_agrupadas
+        how="left",
+        suffix="_nuevo"         # Para evitar duplicidad de nombres de columnas
+    ).with_columns(
+        # Actualizar la columna "diferencia_valores" en df_negativas:
+        # Si se encontró una coincidencia en el join (valor no nulo en la columna "diferencia_valores_nuevo"),
+        # se reemplaza el valor original por el de "diferencia_valores_nuevo"; en caso contrario se conserva el original.
+        pl.coalesce([pl.col("diferencia_valores_nuevo"), pl.col("diferencia_valores")])
+        .alias("diferencia_valores")
+    ).drop("diferencia_valores_nuevo")
+
+    # Se realiza una validacion adicional para quitar aquellas facturas donde su monto si es cero pero agrupandola por la cedula
+    df_crue_cero_negativas = df_negativas.filter(pl.col('diferencia_valores') == 0)
+    df_cruce = unir_dataframes_cruce(df_cruce, df_crue_cero_negativas)
+
+    df_negativas = df_negativas.filter(pl.col('diferencia_valores') != 0)
+
+    # Calculamos la suma de "valor_fv_erp" para cada grupo identificado por "cc_erp"
+    # sin usar group_by, utilizando funciones de ventana "over". Luego, seleccionamos
+    # las columnas únicas y se castea el resultado a Decimal(20,2) asignándolo a "diferencia_valores".
+    df_facturas_pendientes_agrupadas = df_facturas_pendientes.group_by("numero_identificacion_limpio").agg([
+        pl.col("monto_bruto_operacion").cast(pl.Float64).sum().alias("suma_monto_bruto_operacion"),
+    ]).with_columns([
+        pl.col("suma_monto_bruto_operacion").cast(pl.Decimal(20, 2)).alias("diferencia_valores")
+    ]).drop(
+        'suma_monto_bruto_operacion'
+    )
+
+    df_facturas_pendientes = df_facturas_pendientes.join(
+        # Seleccionar únicamente las columnas necesarias del DataFrame agrupado
+        df_facturas_pendientes_agrupadas.select(["numero_identificacion_limpio", "diferencia_valores"]),
+        left_on="numero_identificacion_limpio",   # Llave de unión en df_negativas
+        right_on="numero_identificacion_limpio",  # Llave de unión en df_negativas_agrupadas
+        how="left",
+        suffix="_nuevo"         # Para evitar duplicidad de nombres de columnas
+    ).with_columns(
+        # Actualizar la columna "diferencia_valores" en df_negativas:
+        # Si se encontró una coincidencia en el join (valor no nulo en la columna "diferencia_valores_nuevo"),
+        # se reemplaza el valor original por el de "diferencia_valores_nuevo"; en caso contrario se conserva el original.
+        pl.coalesce([pl.col("diferencia_valores_nuevo"), pl.col("diferencia_valores")]).alias("diferencia_valores")
+    ).drop("diferencia_valores_nuevo").filter(pl.col('numero_identificacion_limpio').is_not_null())
+
+
+    # Se valida que en facturas pendientes la diferecnia por nuemro_identifiacion sea cero
+    df_facturas_pendientes_efecto_0 = df_facturas_pendientes.filter(pl.col('diferencia_valores') == 0)
+
+    # Reordenar columnas manteniendo el resto
+    df_canceladas = df_canceladas.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
+    # Reordenar columnas manteniendo el resto
+    df_facturas_pendientes_efecto_0 = df_facturas_pendientes_efecto_0.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
+    # Reordenar columnas manteniendo el resto
+    df_negativas = df_negativas.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
+    df_canceladas = unir_dataframes_cruce(df_canceladas, df_facturas_pendientes_efecto_0)
+
+    df_facturas_a_favor = df_facturas_pendientes.filter(pl.col('diferencia_valores') != 0)
+
     listados_facturas_negativas = df_negativas.select("factura_erp").unique().to_series().to_list()
     df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
         ~pl.col("factura_erp").is_in(listados_facturas_negativas)
@@ -937,25 +1076,119 @@ def cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, carpeta
     ])
 
 
-    # df_facturas_dobles = procesar_facturas_agrupadas(df_cruce_cedulas_facturas)
-    # listados_facturas_dobles = df_facturas_dobles.select("factura_erp").unique().to_series().to_list()
-    # df_cruce_cedulas_facturas = df_cruce_cedulas_facturas.filter(
-    #     ~pl.col("factura_erp").is_in(listados_facturas_dobles)
-    # )
+    # Filtrar los registros de df_de_din_facturas_asociadas donde:
+    # - La columna "descripcion" contenga la palabra "shipping" (ignorando mayúsculas/minúsculas)
+    # - O la columna "numero_identificacion" comience con "444"
+    df_facturas_shipping = df_sin_facturas_asociadas.filter(
+        (pl.col("descripcion").str.to_lowercase().str.contains("shipping")) |
+        (pl.col("numero_identificacion").str.starts_with("444"))
+    )
 
-    # # Unir df_cruce_cedulas_facturas con df_facturas_dobles
-    # df_cruce_cedulas_facturas = unir_dataframes_cruce(df_cruce_cedulas_facturas, df_facturas_dobles)
+    # Filtrar los registros de df_sin_facturas_asociadas que NO tengan:
+    # - La palabra "shipping" en la columna "descripcion" (ignorando mayúsculas/mínusculas)
+    # - Y que su "numero_identificacion" NO comience con "444"
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.filter(
+        (~pl.col("descripcion").str.to_lowercase().str.contains("shipping")) &
+        (~pl.col("numero_identificacion").str.starts_with("444"))
+    )
+
+    # Calculamos la suma de "monto_bruto_operacion" para cada grupo identificado por "cc_erp"
+    # sin usar group_by, utilizando funciones de ventana "over". Luego, seleccionamos
+    # las columnas únicas y se castea el resultado a Decimal(20,2) asignándolo a "diferencia_valores".
+    df_sin_facturas_asociadas_agrupadas = df_sin_facturas_asociadas.group_by("numero_identificacion_limpio").agg([
+        pl.col("monto_bruto_operacion").cast(pl.Float64).sum().alias("suma_monto_bruto_operacion"),
+    ]).with_columns([
+        pl.col("suma_monto_bruto_operacion").cast(pl.Decimal(20, 2)).alias("diferencia_valores")
+    ]).drop(
+        'suma_monto_bruto_operacion'
+    )
+
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.join(
+        # Seleccionar únicamente las columnas necesarias del DataFrame agrupado
+        df_sin_facturas_asociadas_agrupadas.select(["numero_identificacion_limpio", "diferencia_valores"]),
+        left_on="numero_identificacion_limpio",   # Llave de unión en df_negativas
+        right_on="numero_identificacion_limpio",  # Llave de unión en df_negativas_agrupadas
+        how="left",
+        suffix="_nuevo"         # Para evitar duplicidad de nombres de columnas
+    ).with_columns(
+        # Actualizar la columna "diferencia_valores" en df_negativas:
+        # Si se encontró una coincidencia en el join (valor no nulo en la columna "diferencia_valores_nuevo"),
+        # se reemplaza el valor original por el de "diferencia_valores_nuevo"; en caso contrario se conserva el original.
+        pl.coalesce([pl.col("diferencia_valores_nuevo"), pl.col("diferencia_valores")]).alias("diferencia_valores")
+    ).drop("diferencia_valores_nuevo").filter(pl.col('numero_identificacion_limpio').is_not_null())
+
+    # Reordenar columnas manteniendo el resto
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
+    df_sin_facturas_saldo_a_favor= df_sin_facturas_asociadas.filter(pl.col('diferencia_valores') > 0)
+    df_sin_facturas_saldo_a_favor_con_cedula = df_sin_facturas_saldo_a_favor.filter(pl.col('cc_erp').is_not_null())
+
+    df_sin_facturas_saldo_a_favor = df_sin_facturas_saldo_a_favor.filter(pl.col('cc_erp').is_null())
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.filter(pl.col('diferencia_valores') <= 0)
+
+    df_sin_facturas_asociadas_sin_cedula_negativa = df_sin_facturas_asociadas.filter((pl.col('diferencia_valores') < 0) & (pl.col('numero_identificacion').is_not_null()) & (pl.col('numero_identificacion') != ''))
+    df_negativas = unir_dataframes_cruce(df_negativas, df_sin_facturas_asociadas_sin_cedula_negativa)
+
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.filter((pl.col('diferencia_valores') == 0) | (pl.col('numero_identificacion').is_null()) | (pl.col('numero_identificacion') == ''))
+
+    # Calculamos la suma de "monto_bruto_operacion" para cada grupo identificado por "cc_erp"
+    # sin usar group_by, utilizando funciones de ventana "over". Luego, seleccionamos
+    # las columnas únicas y se castea el resultado a Decimal(20,2) asignándolo a "diferencia_valores".
+    df_sin_facturas_asociadas_agrupadas = df_sin_facturas_asociadas.group_by("id_operacion_mercado_pago").agg([
+        pl.col("monto_bruto_operacion").cast(pl.Float64).sum().alias("suma_monto_bruto_operacion"),
+    ]).with_columns([
+        pl.col("suma_monto_bruto_operacion").cast(pl.Decimal(20, 2)).alias("diferencia_valores")
+    ]).drop(
+        'suma_monto_bruto_operacion'
+    )
+
+    df_sin_facturas_asociadas = df_sin_facturas_asociadas.join(
+        # Seleccionar únicamente las columnas necesarias del DataFrame agrupado
+        df_sin_facturas_asociadas_agrupadas.select(["id_operacion_mercado_pago", "diferencia_valores"]),
+        left_on="id_operacion_mercado_pago",   # Llave de unión en df_negativas
+        right_on="id_operacion_mercado_pago",  # Llave de unión en df_negativas_agrupadas
+        how="left",
+        suffix="_nuevo"         # Para evitar duplicidad de nombres de columnas
+    ).with_columns(
+        # Actualizar la columna "diferencia_valores" en df_negativas:
+        # Si se encontró una coincidencia en el join (valor no nulo en la columna "diferencia_valores_nuevo"),
+        # se reemplaza el valor original por el de "diferencia_valores_nuevo"; en caso contrario se conserva el original.
+        pl.coalesce([pl.col("diferencia_valores_nuevo"), pl.col("diferencia_valores")]).alias("diferencia_valores")
+    ).drop("diferencia_valores_nuevo").filter(pl.col('id_operacion_mercado_pago').is_not_null())
+
+
+    df_saldo_negativo = df_sin_facturas_asociadas.filter(pl.col('diferencia_valores') < 0)
+    df_negativas = unir_dataframes_cruce(df_negativas, df_saldo_negativo)
+
+    df_saldo_positivo_sin_cc = df_sin_facturas_asociadas.filter(pl.col('diferencia_valores') >= 0)
+    df_sin_facturas_saldo_a_favor = unir_dataframes_cruce(df_sin_facturas_saldo_a_favor, df_saldo_positivo_sin_cc)
+
+    # Reordenar columnas manteniendo el resto
+    df_devoluciones = df_devoluciones.select(
+        columnas_ordenadas + [
+            col for col in df_cruce.columns
+            if col not in columnas_ordenadas
+        ]
+    )
+
+    df_negativas = unir_dataframes_cruce(df_negativas, df_devoluciones)
 
     dataframes_a_exportar = {
-        "Informacion original": df_cruce,
-        "Cruce principal": df_cruce_cedulas_facturas,
-        "Facturas devolucion": df_devoluciones,
-        "Facturas canceladas": df_canceladas,
-        #"Facturas duplicadas": df_facturas_dobles,
-        "Facturas negativas": df_negativas,
-        "Facturas reservas canceladas": df_facturas_pendientes,
-        "Facturas sin cruzar": df_sin_facturas_asociadas,
+        "Info original": df_cruce,
+        "Cruce fact 0": df_cruce_cedulas_facturas,
+        #"Facts devolucion": df_devoluciones,
+        "Facts canceladas": df_canceladas,
+        "Saldo negativo": df_negativas,
+        "Saldo a favor SIN CC": df_sin_facturas_saldo_a_favor,
+        "Saldo a favor CON CC": df_sin_facturas_saldo_a_favor_con_cedula,
+        "Shipping": df_facturas_shipping
     }
+
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "reporte_completo", carpeta_resultados)
 
@@ -1092,5 +1325,4 @@ def cruce_addi_erp(df_erp, df_addi, carpeta_resultados):
     }
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi_cruce", carpeta_resultados)
-
 
