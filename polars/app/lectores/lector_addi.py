@@ -17,6 +17,7 @@ class LectorADDI(LectorArchivos):
     def __init__(self, configuracion: 'ConfiguracionLector'):
 
         mapeo_indices_nombres_columnas = {
+            0:'estado_transaccion', #Estado de la transacción
             7:'numero_documento', # Número de documento
             11:'total_ventas', # Total Ventas (1)
             12:'total_cancelaciones' # Total Cancelaciones

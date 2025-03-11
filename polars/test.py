@@ -25,8 +25,8 @@ from app.settings import (RUTA_RAIZ,
 
 def prueba():
 
-    prueba_oms()
-    #prueba_addi()
+    #prueba_oms()
+    prueba_addi()
     #prueba_sistecredito()
 
 
@@ -52,7 +52,7 @@ def prueba_oms():
     cruce_oms_mercado_pago_clase(df_oms, df_mercadolibre, df_mp, df_erp, RUTA_RESULTADOS)
 
 def prueba_addi():
-    config = ConfiguracionLector(ruta_archivo=f'{RUTA_INSUMOS_ERP}/ERP.xls')
+    config = ConfiguracionLector(ruta_archivo=f'{RUTA_INSUMOS_ERP}/ZOMAC de ADDD.xls')
     lector_erp = LectorERP(config)
     df_erp = lector_erp.dataframe()
 

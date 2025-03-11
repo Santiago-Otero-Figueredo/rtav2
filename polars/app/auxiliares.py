@@ -1228,7 +1228,7 @@ def cruce_addi_erp(df_erp, df_addi, carpeta_resultados):
 
 
     # Realizar el cruce y crear columna de diferencia con ajuste de valores cercanos a 0
-    df_cruce = df_cruce.with_columns([
+    df_cruce_transacciones = df_cruce.with_columns([
         pl.when(
             pl.col("total_valor_factura").sub(pl.col("total_ventas")).abs() < 1
         ).then(
@@ -1243,7 +1243,7 @@ def cruce_addi_erp(df_erp, df_addi, carpeta_resultados):
     # Actualizamos el valor de la columna "diferencia_valores" sin crear una nueva columna.
     # Si la diferencia absoluta entre "valor_fv_erp" y "total_ventas" es menor a 1,
     # entonces se asigna 0; en caso contrario, se mantiene el valor original de "diferencia_valores".
-    df_cruce = df_cruce.with_columns(
+    df_cruce = df_cruce_transacciones.with_columns(
         pl.when((pl.col("valor_fv_erp") - pl.col("total_ventas")).abs() < 1)
         .then(pl.lit(0))
         .otherwise(pl.col("diferencia_valores"))
@@ -1317,12 +1317,101 @@ def cruce_addi_erp(df_erp, df_addi, carpeta_resultados):
     )
 
 
+
+    df_cruce_facturas_distintas_cero = calcular_diferencia_cancelaciones_efecto_0(df_cruce_facturas_distintas_cero)
+
+    df_cruce_cancelaciones_efecto_0 = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores')==0)
+    df_cruce_facturas_distintas_cero = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores')!=0)
+
+    df_cruce_cancelaciones_efecto_0_sin_erp = df_cruce_cancelaciones_efecto_0.filter(pl.col('factura_erp').is_null())
+    df_cruce_cancelaciones_efecto_0 = df_cruce_cancelaciones_efecto_0.filter(pl.col('factura_erp').is_not_null())
+
+
+    df_cruce_saldos_por_cobrar = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores') < 0)
+    df_cruce_facturas_distintas_cero = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores') >= 0)
+
+
     dataframes_a_exportar = {
-        "Facturas diferencia 0": df_cruce_facturas_cero,
-        "Facturas incongruencias": df_cruce_facturas_distintas_cero,
-        "Factauras revision": df_cruce_interseccion
+        "Facts diferencia 0": df_cruce_facturas_cero,
+        "Facts incongruencias": df_cruce_facturas_distintas_cero,
+        "Facts cancelaciones 0": df_cruce_cancelaciones_efecto_0,
+        "Facts cancelaciones sin erp": df_cruce_cancelaciones_efecto_0_sin_erp,
+
+        "Saldos por cobrar": df_cruce_saldos_por_cobrar,
+
+
+        "Facts revision": df_cruce_interseccion
 
     }
 
     exportar_multiples_dataframes_excel(dataframes_a_exportar, "addi_cruce", carpeta_resultados)
 
+
+def calcular_diferencia_cancelaciones_efecto_0(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Esto es para quellas facturas que con su total cancelacion geenran efecto 0 en la diferebncuia
+    Calcula la diferencia entre la suma de 'valor' y el promedio del valor absoluto de 'total_cancelaciones'
+    para los registros en los que 'estado_transaccion' es "Transaccion", agrupando por 'numero_documento'.
+
+    En este cálculo:
+      - La suma se realiza únicamente sobre los registros donde 'estado_transaccion' es "Transaccion".
+      - El promedio se calcula tomando el valor absoluto de 'total_cancelaciones' de los mismos registros.
+
+    Args:
+        df (pl.DataFrame): DataFrame que contiene las columnas
+                           'numero_documento', 'estado_transaccion', 'valor' y 'total_cancelaciones'.
+
+    Returns:
+        pl.DataFrame: DataFrame agrupado por 'numero_documento' con la nueva columna 'diferencia_valores'.
+    """
+
+    # Agrupar por 'numero_documento' y realizar las agregaciones condicionales
+    df_agrupado = df.group_by("numero_documento").agg([
+        # Sumar 'total_valor_factura' solo para los registros donde 'estado_transaccion' es "Transacción"
+        pl.col("valor_fv_erp")
+        .filter(pl.col("estado_transaccion") == "Transacción")
+        .cast(pl.Decimal(20, 2))
+        .sum()
+        .alias("suma_valor"),
+
+        # Calcular el promedio de 'total_ventas' (convertido a Float64) solo para los registros donde 'estado_transaccion' es "Transacción"
+        pl.col("total_ventas")
+        .cast(pl.Float64)
+        .filter(pl.col("estado_transaccion") == "Transacción")
+        .mean()
+        .alias("suma_ventas"),
+
+        # Calcular el promedio de los valores absolutos de 'total_cancelaciones' (convertido a Float64)
+        # solo para los registros donde 'estado_transaccion' contiene "Cancelación"
+        pl.col("total_cancelaciones")
+        .cast(pl.Float64)
+        .abs()
+        .filter(pl.col("estado_transaccion").str.contains("Cancelación"))
+        .mean()
+        .alias("promedio_total_cancelaciones")
+    ])
+
+
+    # Calcular la diferencia: suma_valor + promedio_total_cancelaciones - suma_ventas
+    df_agrupado = df_agrupado.with_columns([
+        (pl.col("suma_valor") + pl.col("promedio_total_cancelaciones") - pl.col("suma_ventas"))
+        .alias("diferencia_valores")
+    ]).with_columns([
+        pl.col("diferencia_valores").cast(pl.Decimal(20, 2)).alias("diferencia_valores")
+    ])
+
+
+    # Realizar un join entre el DataFrame original y el DataFrame agrupado usando 'numero_documento' como llave
+    df_actualizado = df.join(
+        df_agrupado.select(["numero_documento", "diferencia_valores"]),
+        on="numero_documento",
+        how="left",
+        suffix="_nuevo"  # Para diferenciar la columna traída del join
+    ).with_columns(
+        # Actualizar la columna 'diferencia_valores':
+        # Si existe un valor calculado (no nulo) en 'diferencia_valores_nuevo', se usa; de lo contrario se conserva el original.
+        pl.coalesce([pl.col("diferencia_valores_nuevo"), pl.col("diferencia_valores")])
+         .alias("diferencia_valores")
+    ).drop("diferencia_valores_nuevo")
+
+    return df_actualizado
