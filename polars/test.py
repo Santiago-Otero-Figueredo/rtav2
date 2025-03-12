@@ -26,8 +26,8 @@ from app.settings import (RUTA_RAIZ,
 def prueba():
 
     #prueba_oms()
-    prueba_addi()
-    #prueba_sistecredito()
+    #prueba_addi()
+    prueba_sistecredito()
 
 
 def prueba_oms():
@@ -64,7 +64,7 @@ def prueba_addi():
 
 
 def prueba_sistecredito():
-    config = ConfiguracionLector(ruta_archivo=f'{RUTA_INSUMOS_ERP}/ERP.xls')
+    config = ConfiguracionLector(ruta_archivo=f'{RUTA_INSUMOS_ERP}/ERP_3_12_25.xls')
     lector_erp = LectorERP(config)
     df_erp = lector_erp.dataframe()
 
@@ -72,7 +72,7 @@ def prueba_sistecredito():
     lector_oms = LectorOMS(config)
     df_oms = lector_oms.dataframe()
 
-    config = ConfiguracionLector(ruta_archivo=f'{RUTA_INSUMOS_FACTURA_SISTECREDITO}/Facturas_pagadas SISTECREDITO.xlsx')
+    config = ConfiguracionLector(ruta_archivo=f'{RUTA_INSUMOS_FACTURA_SISTECREDITO}/Facturas_pagadas_3_12_5.xlsx')
     lector_facturas_sistecredito = LectorSisCredFacturas(config)
     df_factura = lector_facturas_sistecredito.dataframe()
 

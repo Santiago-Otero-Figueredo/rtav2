@@ -125,6 +125,7 @@ class LectorSisCredPagare(LectorArchivos):
         self._dataframe = self._dataframe.with_columns(
             pl.col("documento_identidad")
             .str.replace(r"^\D+", "", literal=False)  # 🔹 Quita solo los caracteres no numéricos al inicio
+            .str.strip_chars()  # Elimina espacios vacíos al inicio y al final
             .alias("documento_identidad")
         )
 

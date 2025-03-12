@@ -148,6 +148,8 @@ class LectorOMS(LectorArchivos):
             .alias("referencia_mercadopago")
         )
 
+        self._dataframe = self._dataframe.unique()
+
 
     def __obtener_archivos_oms(self) -> List[str]:
         """

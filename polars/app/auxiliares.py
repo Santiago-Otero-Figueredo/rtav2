@@ -419,26 +419,6 @@ def obtener_cedula_asociada(factura: str, d_referencias: dict[str, str]) -> str:
 @medir_rendimiento
 def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, carpeta_resultados):
 
-    # ruta_carpeta_oms = 'insumos/oms/'
-    # config = ConfiguracionLector(ruta_carpeta=ruta_carpeta_oms)
-    # lector_oms = LectorOMS(config)
-    # df_oms = lector_oms.dataframe()
-
-    # ruta_carpeta_factura = 'insumos/sistecredito/facturas/Facturas_pagadas SISTECREDITO.xlsx'
-    # config = ConfiguracionLector(ruta_archivo=ruta_carpeta_factura)
-    # lector_factura = LectorSisCredFacturas(config)
-    # df_factura = lector_factura.dataframe()
-
-    # ruta_carpeta_pagare = 'insumos/sistecredito/pagares/PAGARES SISTECREDITO.xlsx'
-    # config = ConfiguracionLector(ruta_archivo=ruta_carpeta_pagare)
-    # lector_pagare = LectorSisCredPagare(config)
-    # df_pagare = lector_pagare.dataframe()
-
-    # ruta_archivo_erp = 'insumos/erp/ERP.xls'  # Ajusta esta ruta según tu estructura
-    # config = ConfiguracionLector(ruta_archivo=ruta_archivo_erp)
-    # lector = LectorERP(config)
-    # df_erp = lector.dataframe()
-
     df_filtrado_oms = df_oms.filter(
         (pl.col("forma_pago_1") == "SISTECREDITO") |
         (pl.col("forma_pago_2") == "SISTECREDITO") |
@@ -475,6 +455,8 @@ def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, carpeta_resultados
         pl.lit("").alias("cedula_oms")
     )
 
+
+
     listado_faturas_sin_cruzar = [
         registro for registro in df_cruce_erp.filter(pl.col('factura_erp').is_null()).select("factura_codigo").unique().to_series().to_list()
         if registro is not None and len(registro) > 0
@@ -501,14 +483,18 @@ def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, carpeta_resultados
 
 
 
-    df_cruce_erp = df_cruce_erp.join(
-        df_facturas_sin_cruce.select(["factura_codigo", "cedula_oms"]),
-        left_on="factura_codigo", # Columna en df_cruce_erp
-        right_on="factura_codigo", # Columna en df_facturas_sin_cruce
-        how="left"
-    ).with_columns(
-        pl.col('cedula_oms_right').alias('cedula_oms')
-    )
+
+    if not df_facturas_sin_cruce.is_empty():
+        df_cruce_erp = df_cruce_erp.join(
+            df_facturas_sin_cruce.select(["factura_codigo", "cedula_oms"]),
+            left_on="factura_codigo", # Columna en df_cruce_erp
+            right_on="factura_codigo", # Columna en df_facturas_sin_cruce
+            how="left"
+        ).with_columns(
+            pl.col('cedula_oms_right').alias('cedula_oms')
+        )
+
+
 
     # Filtrar los registros que tienen un valor en "cedula_oms" (no nulo y no vacío)
     df_con_cedula = df_cruce_erp.filter(
@@ -520,22 +506,23 @@ def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, carpeta_resultados
         (pl.col("cedula_oms").is_null()) | (pl.col("cedula_oms") == "")
     )
 
-    # Realizar el join solo en los registros que tienen "cedula_oms" para actualizar sus valores
-    df_con_cedula_actualizada = df_con_cedula.join(
-        df_erp.select(["cc_erp", "aux_erp", "factura_erp", "valor_fv_erp"]),
-        left_on="cedula_oms",    # Clave en df_con_cedula
-        right_on="cc_erp",        # Clave en df_erp
-        how="left"
-    ).with_columns([
-        # Usamos coalesce para que, en caso de no obtener un valor, se mantenga el original
-        pl.coalesce([pl.col("aux_erp_right"), pl.col("aux_erp")]).alias("aux_erp"),
-        pl.coalesce([pl.col("factura_erp_right"), pl.col("factura_erp")]).alias("factura_erp"),
-        pl.coalesce([pl.col("valor_fv_erp_right"), pl.col("valor_fv_erp")]).alias("valor_fv_erp")
-    ]).drop(["aux_erp_right", "factura_erp_right", "valor_fv_erp_right"])
+    if not df_con_cedula.is_empty():
+        # Realizar el join solo en los registros que tienen "cedula_oms" para actualizar sus valores
+        df_con_cedula_actualizada = df_con_cedula.join(
+            df_erp.select(["cc_erp", "aux_erp", "factura_erp", "valor_fv_erp"]),
+            left_on="cedula_oms",    # Clave en df_con_cedula
+            right_on="cc_erp",        # Clave en df_erp
+            how="left"
+        ).with_columns([
+            # Usamos coalesce para que, en caso de no obtener un valor, se mantenga el original
+            pl.coalesce([pl.col("aux_erp_right"), pl.col("aux_erp")]).alias("aux_erp"),
+            pl.coalesce([pl.col("factura_erp_right"), pl.col("factura_erp")]).alias("factura_erp"),
+            pl.coalesce([pl.col("valor_fv_erp_right"), pl.col("valor_fv_erp")]).alias("valor_fv_erp")
+        ]).drop(["aux_erp_right", "factura_erp_right", "valor_fv_erp_right"])
 
 
-    # Combinar nuevamente los registros actualizados con aquellos que no tenían "cedula_oms"
-    df_cruce_erp = unir_dataframes_cruce(df_con_cedula_actualizada, df_sin_cedula)
+        # Combinar nuevamente los registros actualizados con aquellos que no tenían "cedula_oms"
+        df_cruce_erp = unir_dataframes_cruce(df_con_cedula_actualizada, df_sin_cedula)
 
     # Separar la columna en dos partes usando `.struct`
     df_cruce_erp = df_cruce_erp.with_columns(
@@ -603,13 +590,44 @@ def cruce_sistecredito(df_oms, df_factura, df_pagare, df_erp, carpeta_resultados
     #print(df_facturas_diferentes_cero.filter(pl.col("diferencia") == 0))
     #raise NotImplemented('STOP')
 
+    df_sin_erp = df_facturas_diferentes_cero.filter(pl.col('factura_erp').is_null())
+    df_facturas_diferentes_cero = df_facturas_diferentes_cero.filter(pl.col('factura_erp').is_not_null())
 
+
+    df_aux_facturas_revision = df_facturas_diferentes_cero.with_columns(
+         pl.when((pl.col("valor_factura") - pl.col("valor_fv_erp")).abs() < 2)
+            .then(pl.lit(0))
+            .otherwise(pl.col("valor_factura") - pl.col("valor_fv_erp"))
+            .cast(pl.Int64)  # Castear a entero
+            .alias("diferencia")
+    )
+
+    listado_faturas_revision = [
+        registro for registro in df_aux_facturas_revision.filter(pl.col('diferencia')==0).select("documento_identidad").unique().to_series().to_list()
+        if registro is not None and len(registro) > 0
+    ]
+
+    df_facturas_revision = df_aux_facturas_revision.filter(
+        pl.col("documento_identidad").is_in(listado_faturas_revision)
+    )
+
+    df_facturas_diferentes_cero = df_aux_facturas_revision.filter(
+        ~pl.col("documento_identidad").is_in(listado_faturas_revision)
+    )
+
+    saldo_a_favor = df_facturas_diferentes_cero.filter(pl.col('diferencia')>=0)
+    saldo_por_cobrar = df_facturas_diferentes_cero.filter(pl.col('diferencia')<0)
 
     dataframes_a_exportar = {
         "Factura": df_factura,
         "Pagare": df_pagare,
         "Cruce factura pagare": df_cruce_factura_pagare,
-        "Facturas devolucion": df_facturas_diferentes_cero,
+        "Sin ERP": df_sin_erp,
+        "Facts revision": df_facturas_revision,
+
+        "Saldo a favor": saldo_a_favor,
+        "Saldo por cobrar": saldo_por_cobrar,
+
         "Cruce erp": df_cruce_erp,
     }
 
@@ -1328,18 +1346,16 @@ def cruce_addi_erp(df_erp, df_addi, carpeta_resultados):
 
 
     df_cruce_saldos_por_cobrar = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores') < 0)
-    df_cruce_facturas_distintas_cero = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores') >= 0)
+    df_cruce_saldos_a_favor = df_cruce_facturas_distintas_cero.filter(pl.col('diferencia_valores') >= 0)
+
 
 
     dataframes_a_exportar = {
-        "Facts diferencia 0": df_cruce_facturas_cero,
-        "Facts incongruencias": df_cruce_facturas_distintas_cero,
-        "Facts cancelaciones 0": df_cruce_cancelaciones_efecto_0,
-        "Facts cancelaciones sin erp": df_cruce_cancelaciones_efecto_0_sin_erp,
-
+        "Cruce principal": df_cruce_facturas_cero,
+        "Saldos a favor": df_cruce_saldos_a_favor,
+        "Cancelaciones 0": df_cruce_cancelaciones_efecto_0,
+        "Cancelaciones sin erp": df_cruce_cancelaciones_efecto_0_sin_erp,
         "Saldos por cobrar": df_cruce_saldos_por_cobrar,
-
-
         "Facts revision": df_cruce_interseccion
 
     }
@@ -1415,3 +1431,47 @@ def calcular_diferencia_cancelaciones_efecto_0(df: pl.DataFrame) -> pl.DataFrame
     ).drop("diferencia_valores_nuevo")
 
     return df_actualizado
+
+
+def filtrar_grupos_cancelacion(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Filtra los registros del DataFrame agrupados por "numero_identificacion" y conserva solo aquellos
+    grupos donde todos los registros en "estado_transaccion" contienen la subcadena "Cancelación".
+
+    Procedimiento:
+      1. Se filtran los registros donde 'factura_erp' es nula.
+      2. Se agrupa por "numero_identificacion" y se convierte la columna "estado_transaccion" en una lista.
+         Luego, se evalúa (usando funciones de arreglo) si cada elemento contiene "Cancelación".
+         Finalmente, se aplica arr.all() para obtener una bandera booleana que es True solo si
+         todos los elementos cumplen la condición.
+      3. Se une este DataFrame (con la bandera) con el DataFrame filtrado original.
+      4. Se filtran los registros manteniendo únicamente aquellos donde la bandera es True.
+
+    Args:
+        df (pl.DataFrame): DataFrame de entrada que debe contener las columnas 'numero_identificacion',
+                           'estado_transaccion' y 'factura_erp'.
+
+    Returns:
+        pl.DataFrame: DataFrame filtrado que contiene solo los grupos donde todos los registros en
+                      "estado_transaccion" incluyen la cadena "Cancelación".
+    """
+    # Filtrar registros donde 'factura_erp' es nula
+    df_filtrado = df.filter(pl.col("factura_erp").is_null())
+
+    # Agrupar por "numero_identificacion" y calcular la bandera booleana
+    df_bandera = df_filtrado.group_by("numero_identificacion").agg([
+        # Convertir los valores del grupo en una lista, evaluar si cada elemento contiene "Cancelación"
+        # y luego verificar que todos los resultados sean True.
+        pl.col("estado_transaccion").list()
+          .arr.eval(pl.element().str.contains("Cancelación"), parallel=True)
+          .arr.all()
+          .alias("todos_cancelacion")
+    ])
+
+    # Unir el DataFrame de bandera con el filtrado original
+    df_unido = df_filtrado.join(df_bandera, on="numero_identificacion", how="left")
+
+    # Filtrar solo los registros cuyo grupo cumpla la condición: todos los elementos contienen "Cancelación"
+    df_resultado = df_unido.filter(pl.col("todos_cancelacion"))
+
+    return df_resultado
