@@ -552,7 +552,7 @@ anadir_frame_archivo(frame_archivos, 'Seleccionar archivo Mercadopago', seleccio
 anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta Mercadolibre', seleccionar_archivo_mercadolibre, fila=2, ruta=RUTA_INSUMOS_ML)
 anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta OMS', seleccionar_carpeta_oms, fila=3, ruta=RUTA_INSUMOS_OMS)
 anadir_frame_archivo(frame_archivos, 'Seleccionar carpeta ADDI', seleccionar_carpeta_addi, fila=4, ruta=RUTA_INSUMOS_ADDI)
-anadir_frame_archivo(frame_archivos, 'Seleccionar factura sistecredito', seleccionar_archivo_factura_sistecredito, fila=5, ruta=RUTA_INSUMOS_FACTURA_SISTECREDITO)
+anadir_frame_archivo(frame_archivos, 'Seleccionar archivo sistecredito', seleccionar_archivo_factura_sistecredito, fila=5, ruta=RUTA_INSUMOS_FACTURA_SISTECREDITO)
 anadir_frame_archivo(frame_archivos, 'Seleccionar pagare sistecredito', seleccionar_archivo_pagare_sistecredito, fila=6, ruta=RUTA_INSUMOS_PAGARE_SISTECREDITO)
 
 frame_archivos.grid(row=3, column=0, padx=10, pady=10, sticky='we')

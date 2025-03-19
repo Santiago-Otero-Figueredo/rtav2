@@ -8,6 +8,9 @@ from app.lectores.lector_mercadolibre import LectorMercadoLibre
 from app.lectores.sistecredito.lector_facturas import LectorSisCredFacturas
 from app.lectores.sistecredito.lector_pagare import LectorSisCredPagare
 
+#########################################################################################################
+############################# USAR LA RUTA DE insumos_test PARA LAS PRUEBAS #############################
+#########################################################################################################
 
 from app.settings import (RUTA_RAIZ,
                             RUTA_INSUMOS_ADDI,
